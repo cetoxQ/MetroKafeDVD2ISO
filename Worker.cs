@@ -54,6 +54,30 @@ public static class Worker
 #if DEBUG
         // Test: takılan sürücüyü taklit et (MK_TEST_HANG=--probe veya --copy)
         if (Environment.GetEnvironmentVariable("MK_TEST_HANG") == args[0]) Thread.Sleep(Timeout.Infinite);
+        // Test: sürücüye dokunmadan sahte disk ve sahte kopyalama (hızlı → 8 sn takılma → hızlı)
+        if (Environment.GetEnvironmentVariable("MK_TEST_FAKE") == "1")
+        {
+            const long fakeTotal = 400L * 1024 * 1024;
+            if (args[0] == "--probe")
+            {
+                Send(new WorkerMessage { Type = "probe", Ready = true, Label = "TESTDISK", FileSystem = "CDFS", Size = fakeTotal, DeviceLength = fakeTotal });
+                return 0;
+            }
+            if (args[0] == "--copy")
+            {
+                long done = 0;
+                for (int i = 0; done < fakeTotal; i++)
+                {
+                    if (i == 30) Thread.Sleep(8000);
+                    Thread.Sleep(150);
+                    done = Math.Min(fakeTotal, done + 2L * 1024 * 1024);
+                    Send(new WorkerMessage { Type = "progress", Done = done, Total = fakeTotal });
+                    if (i == 60) break;
+                }
+                Send(new WorkerMessage { Type = "result", Done = done, ElapsedMs = 20000 });
+                return 0;
+            }
+        }
 #endif
         try
         {

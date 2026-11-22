@@ -52,8 +52,10 @@ public sealed class MainForm : Form
     readonly Label lblOptions = new() { AutoSize = true, ForeColor = Theme.TextDim, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(2, 0, 8, 0) };
     readonly FlatButton btnOptions = new() { Text = "Ayarları değiştir", Padding = new Padding(10, 3, 10, 3), Anchor = AnchorStyles.Left };
     readonly Panel banner = new() { Dock = DockStyle.Top, BackColor = Theme.WarnBg, Padding = new Padding(16, 10, 12, 10), Margin = new Padding(0, 4, 0, 10), Visible = false };
-    readonly Label lblBannerTitle = new() { ForeColor = Theme.WarnText };
-    readonly Label lblBannerBody = new() { ForeColor = Theme.WarnTextDim };
+    readonly Label lblBannerTitle = new() { ForeColor = Theme.WarnText, AutoEllipsis = true };
+    readonly Label lblBannerBody = new() { ForeColor = Theme.WarnTextDim, AutoEllipsis = true };
+    readonly List<Control> setupControls = [];
+    readonly Label lblJob = new() { AutoSize = false, AutoEllipsis = true, Height = 26, ForeColor = Theme.Text, Visible = false, Margin = new Padding(0, 2, 0, 10), TextAlign = ContentAlignment.MiddleLeft };
     readonly Label lblPercent = new() { AutoSize = true, ForeColor = Theme.Text, Text = "%0", Margin = new Padding(0) };
     readonly Label lblPhase = new() { AutoSize = true, ForeColor = Theme.TextDim, Text = "Hazır.", Anchor = AnchorStyles.Left | AnchorStyles.Bottom, Margin = new Padding(10, 0, 0, 6) };
     readonly ModernProgress progress = new() { Dock = DockStyle.Top, Margin = new Padding(0, 6, 0, 12) };
@@ -114,7 +116,12 @@ public sealed class MainForm : Form
     double lastProgressChange, peakSpeed;
     string? damageDetail;
     double damageDetailTime;
-    bool stallLogged, hadTrouble;
+    bool hadTrouble;
+    enum Health { Normal, Slow, Damage, Stall }   // artan önem sırasıyla
+    Health health;
+    double healthSince, slowSince = -1;
+    const double MinWarningSeconds = 5, SlowConfirmSeconds = 5;
+    Color bannerStripe = Theme.Success;
     CopyPhase currentPhase;
 
     public MainForm()
@@ -307,17 +314,18 @@ public sealed class MainForm : Form
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1 };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         void Add(Control c) { c.Dock = c.Dock == DockStyle.None ? DockStyle.Top : c.Dock; root.Controls.Add(c); root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); }
+        void AddSetup(Control c) { Add(c); setupControls.Add(c); }
 
-        Add(Section("KAYNAK"));
-        Add(Row(cmbDrive, btnRefresh));
-        Add(lblInfo);
+        AddSetup(Section("KAYNAK"));
+        AddSetup(Row(cmbDrive, btnRefresh));
+        AddSetup(lblInfo);
 
-        Add(Section("HEDEF"));
-        Add(FieldLabel("Kayıt konumu"));
-        Add(Row(new FieldBox(txtFolder), btnBrowse));
-        Add(FieldLabel("Dosya adı"));
+        AddSetup(Section("HEDEF"));
+        AddSetup(FieldLabel("Kayıt konumu"));
+        AddSetup(Row(new FieldBox(txtFolder), btnBrowse));
+        AddSetup(FieldLabel("Dosya adı"));
         var nameExt = new Label { Text = ".iso", AutoSize = true, ForeColor = Theme.TextDim, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 4, 0) };
-        Add(Row(new FieldBox(txtName), nameExt));
+        AddSetup(Row(new FieldBox(txtName), nameExt));
 
         var chips = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top, Margin = new Padding(0, 8, 0, 0), WrapContents = true };
         chips.Controls.Add(new Label { Text = "Hazır adlar:", AutoSize = true, ForeColor = Theme.TextDim, Margin = new Padding(2, 6, 8, 0) });
@@ -334,18 +342,21 @@ public sealed class MainForm : Form
             presetButtons[preset] = b;
             chips.Controls.Add(b);
         }
-        Add(chips);
-        Add(lblPath);
+        AddSetup(chips);
+        AddSetup(lblPath);
 
         var opts = Row(lblOptions, btnOptions);
         opts.Margin = new Padding(0, 12, 0, 8);
-        Add(opts);
+        AddSetup(opts);
+
+        // Kopyalama sırasında yukarıdaki kurulum alanı gizlenir, yerine tek satırlık özet gelir (günlüğe yer açılır)
+        Add(lblJob);
 
         // Çizik disk uyarı bandı
         lblBannerTitle.Font = new Font("Segoe UI Semibold", 10f);
         banner.Controls.Add(lblBannerTitle);
         banner.Controls.Add(lblBannerBody);
-        banner.Paint += (_, e) => { using var b = new SolidBrush(Theme.WarnText); e.Graphics.FillRectangle(b, 0, 0, 4, banner.Height); };
+        banner.Paint += (_, e) => { using var b = new SolidBrush(bannerStripe); e.Graphics.FillRectangle(b, 0, 0, 4, banner.Height); };
         banner.Resize += (_, _) => LayoutBanner();
         Add(banner);
 
@@ -882,6 +893,7 @@ public sealed class MainForm : Form
             return;
 
         cts = new CancellationTokenSource();
+        lblJob.Text = $"{item.Letter}:  {(item.Label.Length > 0 ? item.Label : "disk")}   →   {output}";
         SetBusy(true);
         lstLog.Items.Clear();
         Log($"{item.Letter}: → {output}  ({FormatSize(size)})");
@@ -986,7 +998,7 @@ public sealed class MainForm : Form
         copyBad = 0;
         peakSpeed = 0;
         damageDetail = null;
-        stallLogged = hadTrouble = false;
+        hadTrouble = false;
         currentPhase = CopyPhase.Reading;
         cardDone.CaptionText = "Kopyalanan";
         samples.Clear();
@@ -997,7 +1009,10 @@ public sealed class MainForm : Form
         lblPercent.Text = "%0";
         lblPhase.Text = "Okunuyor…";
         ResetStats();
-        HideBanner();
+        health = Health.Normal;
+        healthSince = 0;
+        slowSince = -1;
+        ShowBanner(false, "✓  Okuma normal", "Okuma takılır, yavaşlar ya da hasarlı bölgeye gelirse burada gösterilir ve günlüğe yazılır.");
         statsTimer.Start();
     }
 
@@ -1071,62 +1086,93 @@ public sealed class MainForm : Form
             : etaSpeed > 0 ? TimeSpan.FromSeconds((copyTotal - copyDone) / etaSpeed).ToString(@"hh\:mm\:ss") : "—";
 
         string position = $"{FormatSize(copyDone)} konumunda";
-        if (stall >= StallSeconds)
+        bool slowNow = currentPhase == CopyPhase.Reading && now > 10 && peakSpeed > 0 && speed < peakSpeed * 0.3;
+        if (!slowNow) slowSince = -1;
+        else if (slowSince < 0) slowSince = now;
+
+        var desired = stall >= StallSeconds ? Health.Stall
+            : damageDetail != null && now - damageDetailTime < 5 ? Health.Damage
+            : slowSince >= 0 && now - slowSince >= SlowConfirmSeconds ? Health.Slow
+            : Health.Normal;
+
+        // Uyarı en az birkaç saniye ekranda kalır (gidip gelmesin); daha ciddi bir durum hemen gösterilir
+        if (desired < health && now - healthSince < MinWarningSeconds) return;
+        if (desired != health)
         {
-            ShowBanner($"⚠  Disk okunmakta zorlanıyor — {stall:0} sn'dir ilerleme yok ({position})",
-                (damageDetail != null && now - damageDetailTime < 30 ? $"Hasarlı bölge tekrar deneniyor: {damageDetail}.\n" : "") +
-                "Disk çizik, kirli veya hasarlı olabilir. Sürücü bu bölgeyi tekrar tekrar okumaya çalışıyor; " +
-                "bu birkaç dakika sürebilir. Bekleyebilir ya da İptal'e basabilirsiniz.\n" +
-                "İpucu: Diski yumuşak bir bezle merkezden dışa doğru silip yeniden deneyin.");
-            lblPhase.Text = "Okuma takıldı, bekleniyor…";
-            if (!stallLogged) { Log($"Okuma takıldı ({position}). Disk çizik olabilir."); stallLogged = true; }
-            hadTrouble = true;
-        }
-        else if (damageDetail != null && now - damageDetailTime < 5)
-        {
-            ShowBanner("⚠  Hasarlı bölge okunuyor — kopyalama yavaşlayabilir",
-                $"Okunamayan bölge sektör sektör tekrar deneniyor ({damageDetail}). " +
-                (settings.SkipBadSectors ? "Okunamayan sektörler atlanıp sıfırla doldurulacak." : "Bir sektör okunamazsa işlem duracak."));
-            lblPhase.Text = "Hasarlı bölge okunuyor…";
-        }
-        else if (currentPhase == CopyPhase.Reading && now > 10 && peakSpeed > 0 && speed < peakSpeed * 0.3)
-        {
-            ShowBanner($"⚠  Okuma hızı belirgin şekilde düştü ({FormatSize((long)speed)}/s, en yüksek {FormatSize((long)peakSpeed)}/s)",
-                "Diskin bu bölgesinde çizik veya leke olabilir; sürücü yavaşlayarak okumaya çalışıyor. İşlem devam ediyor.");
-            lblPhase.Text = "Yavaş okunuyor…";
-            hadTrouble = true;
-        }
-        else
-        {
-            HideBanner();
-            stallLogged = false;
-            lblPhase.Text = currentPhase switch
+            if (desired != Health.Normal) hadTrouble = true;
+            Log(desired switch
             {
-                CopyPhase.Recovering => "Hasarlı bölgeler tekrar deneniyor…",
-                CopyPhase.Verifying => "Doğrulanıyor…",
-                CopyPhase.Building => "ISO oluşturuluyor…",
-                _ => "Okunuyor…",
-            };
+                Health.Stall => $"Okuma takıldı ({position}). Disk çizik olabilir.",
+                Health.Damage => $"Hasarlı bölge okunuyor ({damageDetail}).",
+                Health.Slow => $"Okuma hızı düştü: {FormatSize((long)speed)}/s (en yüksek {FormatSize((long)peakSpeed)}/s, {position}).",
+                _ => "Okuma normale döndü.",
+            });
+            health = desired;
+            healthSince = now;
+        }
+
+        switch (health)
+        {
+            case Health.Stall:
+                ShowBanner(true, $"⚠  Disk okunmakta zorlanıyor — {stall:0} sn'dir ilerleme yok ({position})",
+                    (damageDetail != null && now - damageDetailTime < 30 ? $"Hasarlı bölge tekrar deneniyor: {damageDetail}. " : "") +
+                    "Disk çizik, kirli veya hasarlı olabilir; sürücü bu bölgeyi tekrar tekrar okumaya çalışıyor, birkaç dakika sürebilir. " +
+                    "Bekleyebilir ya da İptal'e basabilirsiniz. İpucu: Diski yumuşak bir bezle merkezden dışa doğru silip yeniden deneyin.");
+                lblPhase.Text = "Okuma takıldı, bekleniyor…";
+                break;
+            case Health.Damage:
+                ShowBanner(true, "⚠  Hasarlı bölge okunuyor — kopyalama yavaşlayabilir",
+                    $"Okunamayan bölge sektör sektör tekrar deneniyor ({damageDetail}). " +
+                    (settings.SkipBadSectors ? "Okunamayan sektörler atlanıp sıfırla doldurulacak." : "Bir sektör okunamazsa işlem duracak."));
+                lblPhase.Text = "Hasarlı bölge okunuyor…";
+                break;
+            case Health.Slow:
+                ShowBanner(true, $"⚠  Okuma hızı belirgin şekilde düştü ({FormatSize((long)speed)}/s, en yüksek {FormatSize((long)peakSpeed)}/s)",
+                    "Diskin bu bölgesinde çizik veya leke olabilir; sürücü yavaşlayarak okumaya çalışıyor. İşlem devam ediyor.");
+                lblPhase.Text = "Yavaş okunuyor…";
+                break;
+            default:
+                ShowBanner(false, "✓  Okuma normal", "Okuma takılır, yavaşlar ya da hasarlı bölgeye gelirse burada gösterilir ve günlüğe yazılır.");
+                lblPhase.Text = currentPhase switch
+                {
+                    CopyPhase.Recovering => "Hasarlı bölgeler tekrar deneniyor…",
+                    CopyPhase.Verifying => "Doğrulanıyor…",
+                    CopyPhase.Building => "ISO oluşturuluyor…",
+                    _ => "Okunuyor…",
+                };
+                break;
         }
     }
 
-    void ShowBanner(string title, string body)
+    // Durum alanı kopyalama boyunca sabit yerde ve sabit yükseklikte durur; yalnız rengi ve metni değişir
+    void ShowBanner(bool warning, string title, string body)
     {
         if (lblBannerTitle.Text != title) lblBannerTitle.Text = title;
         if (lblBannerBody.Text != body) lblBannerBody.Text = body;
-        banner.Visible = true;
-        LayoutBanner();
-        progress.BarColor = Color.FromArgb(220, 120, 20);
+        var back = warning ? Theme.WarnBg : Theme.Surface;
+        if (banner.BackColor != back)
+        {
+            banner.BackColor = lblBannerTitle.BackColor = lblBannerBody.BackColor = back;
+            lblBannerTitle.ForeColor = warning ? Theme.WarnText : Theme.Success;
+            lblBannerBody.ForeColor = warning ? Theme.WarnTextDim : Theme.TextDim;
+            bannerStripe = warning ? Theme.WarnText : Theme.Success;
+            banner.Invalidate();
+        }
+        if (!banner.Visible)
+        {
+            banner.Visible = true;
+            LayoutBanner();
+        }
+        progress.BarColor = warning ? Color.FromArgb(220, 120, 20) : Theme.Accent;
     }
 
-    // Bant yüksekliği metnin satır sayısına göre ayarlanır
+    // Sabit yükseklik: başlık 1 satır + açıklama en çok 3 satır (taşan kısım … ile kısaltılır)
     void LayoutBanner()
     {
         var pad = banner.Padding;
         int w = Math.Max(100, banner.ClientSize.Width - pad.Horizontal);
-        var flags = TextFormatFlags.WordBreak;
-        int h1 = TextRenderer.MeasureText(lblBannerTitle.Text, lblBannerTitle.Font, new Size(w, int.MaxValue), flags).Height;
-        int h2 = TextRenderer.MeasureText(lblBannerBody.Text, lblBannerBody.Font, new Size(w, int.MaxValue), flags).Height;
+        int h1 = TextRenderer.MeasureText("Ag", lblBannerTitle.Font).Height;
+        int h2 = TextRenderer.MeasureText("Ag", lblBannerBody.Font).Height * 3;
         lblBannerTitle.SetBounds(pad.Left, pad.Top, w, h1);
         lblBannerBody.SetBounds(pad.Left, pad.Top + h1 + 4, w, h2);
         int total = pad.Vertical + h1 + 4 + h2;
@@ -1145,6 +1191,9 @@ public sealed class MainForm : Form
 
     void SetBusy(bool busy)
     {
+        // Kopyalarken kurulum alanını gizle, yerine tek satırlık özet göster: günlüğe yer açılır
+        foreach (var c in setupControls) c.Visible = !busy;
+        lblJob.Visible = busy;
         cmbDrive.Enabled = btnRefresh.Enabled = txtFolder.Enabled = txtName.Enabled = btnBrowse.Enabled = btnOptions.Enabled = !busy;
         pageSettings.Enabled = !busy;
         foreach (var b in presetButtons.Values) b.Enabled = !busy;

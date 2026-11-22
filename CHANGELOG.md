@@ -1,5 +1,11 @@
 # Sürüm notları
 
+## v1.4.2 — 2026-11-23
+- Kopyalama başlayınca kaynak/hedef alanı tek satırlık özete iniyor; günlük ekranı çok daha geniş
+- Durum alanı kopyalama boyunca sabit yerde ve sabit yükseklikte: sorun yokken "Okuma normal", sorun olunca sarı uyarı; ekran artık zıplamıyor
+- Uyarılar en az 5 sn ekranda kalıyor (gidip gelmiyor); "okuma hızı düştü" uyarısı ancak hız 5 sn boyunca düşük kalırsa çıkıyor
+- Her uyarı başladığında ve okuma normale döndüğünde günlüğe bir satır yazılıyor
+
 ## v1.4.1 — 2026-11-23
 - Ayarlar ve günlükler artık programın bulunduğu klasöre kaydediliyor (MetroKafeDVD2ISO.settings.json, logs\); klasör yazılabilir değilse %AppData% kullanılıyor. Eski ayarlar bir kez taşınıyor
 - Dosya tabanlı yöntem iki adımda çalışıyor: dosyalar önce geçici klasöre kopyalanıyor (ilerleme, hız ve takılma uyarısı normal çalışıyor; okunamayan bölümler atlanıp günlüğe yazılıyor), ardından ISO yerel kopyadan saniyeler içinde oluşturuluyor
