@@ -55,6 +55,10 @@ sealed class Mp4Panel : Panel
     readonly FlatButton btnBrowse = new() { Text = "Gözat…", Anchor = AnchorStyles.Left };
     readonly ModernProgress progress = new() { Dock = DockStyle.Top, Margin = new Padding(0, 6, 0, 6) };
     readonly Label lblStatus = new() { AutoSize = false, AutoEllipsis = true, Height = 22, ForeColor = Theme.TextDim, Text = "Hazır." };
+    readonly Label lblSystem = new() { AutoSize = false, AutoEllipsis = true, Height = 22, ForeColor = Theme.Text, Text = "Sistem bilgisi okunuyor…" };
+    readonly System.Windows.Forms.Timer statsTimer = new() { Interval = 1000 };
+    SystemStats? stats;
+    bool sampling;
     readonly FlatButton btnStart = new() { Text = "Dönüştürmeyi başlat", Style = FlatButton.Kind.Primary, Padding = new Padding(22, 9, 22, 9) };
     readonly FlatButton btnCancel = new() { Text = "İptal", Padding = new Padding(22, 9, 22, 9), Enabled = false, Margin = new Padding(0, 0, 8, 0) };
     readonly ListBox lstLog = new() { Dock = DockStyle.Fill, IntegralHeight = false, HorizontalScrollbar = true, BorderStyle = BorderStyle.None, BackColor = Theme.Surface, ForeColor = Theme.TextDim };
@@ -165,6 +169,7 @@ sealed class Mp4Panel : Panel
         Add(MainForm.Section("İLERLEME"));
         Add(progress);
         Add(lblStatus);
+        Add(lblSystem);
         var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0, 4, 0, 10) };
         buttons.Controls.Add(btnStart);
         buttons.Controls.Add(btnCancel);
@@ -189,6 +194,8 @@ sealed class Mp4Panel : Panel
         rbDeintOn.CheckedChanged += (_, _) => SaveSettings();
         chkNextToIso.CheckedChanged += (_, _) => { txtFolder.Enabled = btnBrowse.Enabled = !chkNextToIso.Checked; SaveSettings(); };
         txtFolder.TextChanged += (_, _) => SaveSettings();
+        statsTimer.Tick += async (_, _) => await UpdateSystemAsync();
+        VisibleChanged += (_, _) => { if (Visible || IsBusy) statsTimer.Start(); else statsTimer.Stop(); };
         lstFiles.AllowDrop = true;
         lstFiles.DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
         lstFiles.DragDrop += (_, e) =>
@@ -271,8 +278,39 @@ sealed class Mp4Panel : Panel
     /// <summary>HandBrake kuruluysa bu bilgisayardaki kodlayıcıları yükler (sekme ilk açıldığında).</summary>
     public async Task LoadEncodersAsync()
     {
+        var gpus = SystemStats.GpuNames();
+        Log("Ekran kartları: " + (gpus.Count > 0 ? string.Join(", ", gpus) : "bulunamadı"));
         if (!HandBrake.IsInstalled) return;
-        try { SetEncoders(await HandBrake.GetH264EncodersAsync()); } catch { }
+        try
+        {
+            var list = await HandBrake.GetH264EncodersAsync();
+            SetEncoders(list);
+            Log("HandBrake'in bu bilgisayarda kullanabildiği kodlayıcılar: " +
+                string.Join(", ", list.Select(id => Encoders.TryGetValue(id, out var e) ? e.Name.Split(" — ")[0] : id)));
+            // Takılı kart için kodlayıcı görünmüyorsa nedenini söyle
+            bool Has(string vendor) => gpus.Any(g => g.Contains(vendor, StringComparison.OrdinalIgnoreCase));
+            if (Has("NVIDIA") && !list.Contains("nvenc_h264"))
+                Log("NVIDIA kart var ama HandBrake NVENC'i kullanamıyor: ekran kartı sürücüsünü güncelleyin (çok eski kartlarda NVENC yoktur).");
+            if ((Has("AMD") || Has("Radeon")) && !list.Any(e => e.StartsWith("vce") || e.StartsWith("vcn")))
+                Log("AMD kart var ama HandBrake kullanamıyor: AMD Adrenalin sürücüsünü güncelleyin.");
+            if (Has("Intel") && !list.Contains("qsv_h264"))
+                Log("Intel ekran kartı var ama Quick Sync kullanılamıyor: Intel grafik sürücüsünü güncelleyin; BIOS'ta dahili grafik kapalı olabilir.");
+        }
+        catch (Exception ex) { Log("Kodlayıcılar okunamadı: " + ex.Message); }
+    }
+
+    async Task UpdateSystemAsync()
+    {
+        if (sampling) return;
+        sampling = true;
+        try
+        {
+            stats ??= new SystemStats();
+            var snap = await Task.Run(stats.Sample);
+            lblSystem.Text = SystemStats.Format(snap);
+        }
+        catch { lblSystem.Text = "Sistem bilgisi okunamadı."; }
+        finally { sampling = false; }
     }
 
     void RefreshEstimate()
@@ -437,6 +475,9 @@ sealed class Mp4Panel : Panel
         cts = new CancellationTokenSource();
         SetBusy(true);
         var settingsNow = new EncodeSettings(Kbps, encoderIds[Math.Max(0, cmbEncoder.SelectedIndex)], rbDeintOn.Checked);
+        if (settingsNow.Encoder != "x264")
+            Log("Not: Ekran kartı kodlamayı yapar; taramalı görüntü düzeltme (Decomb) ve ses işlemcide yapıldığı için işlemci de kullanılır. " +
+                "Görev Yöneticisi'nde ekran kartı yükü \"3D\" değil \"Video Encode\" grafiğinde görünür.");
         Log($"Dönüştürme başladı: {settingsNow.VideoKbps} kbps, {Encoders.GetValueOrDefault(settingsNow.Encoder).Name ?? settingsNow.Encoder}, " +
             $"deinterlace {(settingsNow.Deinterlace ? "açık" : "kapalı")}, ses AAC {HandBrake.AudioKbps} kbps.");
         var sw = Stopwatch.StartNew();
@@ -513,7 +554,14 @@ sealed class Mp4Panel : Panel
                                  (p.Eta is { } eta ? $" · kalan {eta:hh\\:mm\\:ss}" : "");
                 lstFiles.Invalidate();
             });
-            await HandBrake.EncodeAsync(item.Path, title.Index, output, s, prog, ct);
+            var info = new Progress<string>(Log);
+            bool encoderLogged = false;
+            await HandBrake.EncodeAsync(item.Path, title.Index, output, s, prog, ct, line =>
+            {
+                if (encoderLogged && line.Contains("kodlayıcı")) return;
+                encoderLogged |= line.Contains("kodlayıcı");
+                ((IProgress<string>)info).Report(line);
+            });
             doneBefore += title.Duration.TotalSeconds;
             Log($"{name}: başlık {title.Index} tamam — {MainForm.FormatSize(new FileInfo(output).Length)}, süre {tsw.Elapsed:hh\\:mm\\:ss}.");
         }
@@ -530,6 +578,12 @@ sealed class Mp4Panel : Panel
     }
 
     public void CancelAll() => cts?.Cancel();
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) { statsTimer.Dispose(); stats?.Dispose(); }
+        base.Dispose(disposing);
+    }
 
     void Log(string msg)
     {

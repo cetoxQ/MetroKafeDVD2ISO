@@ -101,10 +101,29 @@ public static class HandBrake
     public static async Task<List<string>> GetH264EncodersAsync()
     {
         var (output, _) = await RunToEndAsync(["--help"], CancellationToken.None);
-        var known = new[] { "x264", "nvenc_h264", "qsv_h264", "vce_h264" };
-        var found = Regex.Matches(output, @"^\s+(\S+)\s*$", RegexOptions.Multiline).Select(m => m.Groups[1].Value).ToHashSet();
-        return known.Where(found.Contains).ToList();
+        return ParseH264Encoders(output);
     }
+
+    /// <summary>
+    /// "--help" çıktısındaki kodlayıcı listesinden x264 ve donanım H.264 kodlayıcıları (NVIDIA nvenc, Intel qsv,
+    /// AMD vce/vcn — HandBrake sürümüne göre adı değişebilir). HandBrake yalnız çalışanları listeler.
+    /// </summary>
+    public static List<string> ParseH264Encoders(string help)
+    {
+        var found = Regex.Matches(help, @"^\s+(\S+)\s*$", RegexOptions.Multiline).Select(m => m.Groups[1].Value).Distinct().ToList();
+        var list = new List<string>();
+        if (found.Contains("x264")) list.Add("x264");
+        list.AddRange(found.Where(e => Regex.IsMatch(e, @"^(nvenc|qsv|vce|vcn)_h264$")));
+        return list;
+    }
+
+    /// <summary>Kodlayıcıya uygun donanım kod çözme (videonun açılması da ekran kartında yapılsın).</summary>
+    public static string? HardwareDecoderFor(string encoder) => encoder switch
+    {
+        "nvenc_h264" => "nvdec",
+        "qsv_h264" => "qsv",
+        _ => null,
+    };
 
     // ───────────────────────── Tarama ─────────────────────────
 
@@ -207,12 +226,14 @@ public static class HandBrake
             "-E", "av_aac", "-B", AudioKbps.ToString(CultureInfo.InvariantCulture), "--mixdown", "stereo",
         };
         if (s.Deinterlace) args.AddRange(["--comb-detect", "--decomb"]);
+        if (HardwareDecoderFor(s.Encoder) is { } hw) args.AddRange(["--enable-hw-decoding", hw]);
         return args;
     }
 
     /// <summary>Bir başlığı MP4'e dönüştürür. İptalde HandBrake kapatılır ve yarım dosya silinir.</summary>
+    /// <param name="info">HandBrake günlüğünden önemli satırlar (ör. gerçekte kullanılan kodlayıcı) için.</param>
     public static async Task EncodeAsync(string input, int title, string output, EncodeSettings settings,
-        IProgress<HbProgress> progress, CancellationToken ct)
+        IProgress<HbProgress> progress, CancellationToken ct, Action<string>? info = null)
     {
         var psi = NewStartInfo(BuildArgs(input, title, output, settings));
         using var p = Process.Start(psi) ?? throw new IOException("HandBrake başlatılamadı.");
@@ -221,7 +242,12 @@ public static class HandBrake
         {
             string? line;
             while ((line = await p.StandardError.ReadLineAsync()) != null)
+            {
                 lock (errTail) { errTail.Enqueue(line); if (errTail.Count > 40) errTail.Dequeue(); }
+                // Ör. "+ encoder: H.264 (libx264)", "+ encoder: H.264 (Intel Media SDK)", "+ decoder: mpeg2video (qsv)"
+                var m = Regex.Match(line, @"\+ (encoder|decoder): (.+)$");
+                if (m.Success) info?.Invoke($"HandBrake {(m.Groups[1].Value == "encoder" ? "kodlayıcı" : "kod çözücü")}: {m.Groups[2].Value.Trim()}");
+            }
         });
         var outTask = Task.Run(async () =>
         {

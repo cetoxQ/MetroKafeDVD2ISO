@@ -1,5 +1,11 @@
 # Sürüm notları
 
+## v1.5.1 — 2026-11-23
+- MP4 sekmesinde ilerleme çubuğunun altında sistem bilgisi: işlemci kullanımı, RAM (kullanılan / toplam), ekran kartının video kodlama / video çözme / 3D kullanımı; NVIDIA kartlarda ekran kartı sıcaklığı, destekleyen bilgisayarlarda anakart (ACPI) sıcaklığı
+- AMD ekran kartları HandBrake'in yeni adıyla (vcn) da tanınıyor
+- Ekran kartı seçilince videonun açılması (kod çözme) da ekran kartında yapılıyor (NVIDIA, Intel)
+- Tanılama: sekme açılınca ekran kartları ve kullanılabilen kodlayıcılar, dönüştürmede HandBrake'in gerçekte kullandığı kodlayıcı günlüğe yazılıyor; takılı kartın kodlayıcısı yoksa nedeni söyleniyor
+
 ## v1.5.0 — 2026-11-23
 - Yeni "MP4'e Dönüştür" sekmesi: ISO'lar HandBrakeCLI ile MP4'e (H.264 + AAC) dönüştürülüyor
 - Çözünürlük ve kare hızı kaynakla aynı kalıyor (kırpma/ölçekleme yok, sabit kare hızı, DVD en-boy oranı korunuyor)
