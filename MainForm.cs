@@ -852,16 +852,21 @@ public sealed class MainForm : Form
         long size = info.Size;
         if (size <= 0) { Warn("Disk boyutu okunamadı."); return; }
         // Dosya tabanlı ISO'da Video CD görüntü dosyaları tam sektörlerle (2352 bayt) okunur; biraz daha büyük çıkar
-        if (UsesFileMethod(info)) size = size / 2048 * 2352 + 4 * 1024 * 1024;
+        bool fileMethod = UsesFileMethod(info);
+        if (fileMethod) size = size / 2048 * 2352 + 4 * 1024 * 1024;
+        // Dosya tabanlı yöntemde dosyalar önce geçici klasöre kopyalanır: ISO ile birlikte iki katı yer gerekir
+        long needed = fileMethod ? size * 2 : size;
 
         // Boş alan ve FAT32 4 GB sınırı kontrolü
         try
         {
             var target = new DriveInfo(Path.GetPathRoot(output)!);
             long existing = File.Exists(output) ? new FileInfo(output).Length : 0;
-            if (target.AvailableFreeSpace + existing < size)
+            if (target.AvailableFreeSpace + existing < needed)
             {
-                Warn($"Hedef sürücüde yeterli boş alan yok.\nGereken: {FormatSize(size)}\nBoş: {FormatSize(target.AvailableFreeSpace)}");
+                Warn($"Hedef sürücüde yeterli boş alan yok.\nGereken: {FormatSize(needed)}" +
+                     (fileMethod ? " (dosyalar önce geçici olarak kopyalandığı için ISO boyutunun iki katı)" : "") +
+                     $"\nBoş: {FormatSize(target.AvailableFreeSpace)}");
                 return;
             }
             if (size >= 4L * 1024 * 1024 * 1024 && target.DriveFormat.StartsWith("FAT", StringComparison.OrdinalIgnoreCase))
@@ -1022,7 +1027,12 @@ public sealed class MainForm : Form
             copyDone = p.BytesDone;
             lastProgressChange = now;
             damageDetail = null;
-            cardDone.CaptionText = p.Phase == CopyPhase.Verifying ? "Doğrulanan" : "Kopyalanan";
+            cardDone.CaptionText = p.Phase switch
+            {
+                CopyPhase.Verifying => "Doğrulanan",
+                CopyPhase.Building => "ISO'ya yazılan",
+                _ => "Kopyalanan",
+            };
         }
         if (p.Message != null) Log(p.Message);
         if (p.Detail != null) { damageDetail = p.Detail; damageDetailTime = now; hadTrouble = true; }
@@ -1094,6 +1104,7 @@ public sealed class MainForm : Form
             {
                 CopyPhase.Recovering => "Hasarlı bölgeler tekrar deneniyor…",
                 CopyPhase.Verifying => "Doğrulanıyor…",
+                CopyPhase.Building => "ISO oluşturuluyor…",
                 _ => "Okunuyor…",
             };
         }
@@ -1173,12 +1184,12 @@ public sealed class MainForm : Form
         t.Start();
     }
 
-    /// <summary>Her kopyalamanın günlüğü %AppData%\MetroKafeDVD2ISO\logs altına kaydedilir.</summary>
+    /// <summary>Her kopyalamanın günlüğü programın klasöründeki logs altına kaydedilir (bkz. AppPaths).</summary>
     void SaveLog(string label)
     {
         try
         {
-            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MetroKafeDVD2ISO", "logs");
+            string dir = AppPaths.LogsDir;
             Directory.CreateDirectory(dir);
             string path = Path.Combine(dir, $"{DateTime.Now:yyyy-MM-dd_HH-mm-ss}_{SanitizeFileName(label)}.txt");
             File.WriteAllText(path, $"{AppName} v{UpdateChecker.Format(UpdateChecker.Current)}{Environment.NewLine}{LogText()}{Environment.NewLine}");

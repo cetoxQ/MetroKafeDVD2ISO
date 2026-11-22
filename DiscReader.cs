@@ -6,7 +6,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace MetroKafeDVD2ISO;
 
-public enum CopyPhase { Reading, Recovering, Verifying }
+public enum CopyPhase { Reading, Recovering, Verifying, Building }
 
 /// <param name="Detail">Hasarlı bölgede tekrar deneme yapılırken durum bilgisi.</param>
 public sealed record CopyProgress(CopyPhase Phase, long BytesDone, long TotalBytes, int BadSectors, string? Message = null, string? Detail = null);

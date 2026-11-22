@@ -142,8 +142,8 @@ public static class Worker
                     send(new WorkerMessage { Type = "info", Message = "Dosya tabanlı yöntemde diskle sektör karşılaştırması yapılamaz; yalnız SHA-256 hesaplanacak." });
                 string label = "";
                 try { label = new DriveInfo(drive.ToString()).VolumeLabel; } catch { }
-                var fr = FileIsoBuilder.Build(root, label, output, opt.Verify, progress, cts.Token);
-                send(new WorkerMessage { Type = "result", Done = fr.BytesWritten, ElapsedMs = (long)fr.Elapsed.TotalMilliseconds, Sha256 = fr.Sha256 });
+                var fr = FileIsoBuilder.Build(root, label, output, opt.Verify, opt.SkipBadSectors, progress, cts.Token);
+                send(new WorkerMessage { Type = "result", Done = fr.BytesWritten, Bad = fr.BadSectors, ElapsedMs = (long)fr.Elapsed.TotalMilliseconds, Sha256 = fr.Sha256 });
                 return 0;
             }
 

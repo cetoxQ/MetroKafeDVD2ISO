@@ -1,5 +1,10 @@
 # Sürüm notları
 
+## v1.4.1 — 2026-11-23
+- Ayarlar ve günlükler artık programın bulunduğu klasöre kaydediliyor (MetroKafeDVD2ISO.settings.json, logs\); klasör yazılabilir değilse %AppData% kullanılıyor. Eski ayarlar bir kez taşınıyor
+- Dosya tabanlı yöntem iki adımda çalışıyor: dosyalar önce geçici klasöre kopyalanıyor (ilerleme, hız ve takılma uyarısı normal çalışıyor; okunamayan bölümler atlanıp günlüğe yazılıyor), ardından ISO yerel kopyadan saniyeler içinde oluşturuluyor
+- Dosya tabanlı yöntemde boş alan denetimi geçici kopya için gereken yeri de hesaba katıyor
+
 ## v1.4.0 — 2026-11-23
 - Video CD / Super Video CD desteği: görüntü sektörleri (Mode 2 Form 2) ISO'ya sektör sektör sığmadığı için bu disklerde ISO, diskteki dosyalardan oluşturuluyor (eski DVD2ISO gibi); artık "hasarlı bölge" hatası vermiyor
 - Ayarlara "Kopyalama yöntemi" eklendi: Otomatik / Sektör sektör / Dosya tabanlı

@@ -2,7 +2,43 @@ using System.Text.Json;
 
 namespace MetroKafeDVD2ISO;
 
-/// <summary>%AppData%\MetroKafeDVD2ISO\settings.json içinde saklanan kullanıcı ayarları.</summary>
+/// <summary>
+/// Ayar ve günlüklerin yeri: programın bulunduğu klasör (taşınabilir kullanım).
+/// Klasör yazılabilir değilse (ör. Program Files) %AppData%\MetroKafeDVD2ISO kullanılır.
+/// </summary>
+public static class AppPaths
+{
+    static readonly string AppDataDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MetroKafeDVD2ISO");
+
+    static readonly Lazy<string> dataDir = new(() =>
+    {
+        string? exeDir = Path.GetDirectoryName(Environment.ProcessPath);
+        if (exeDir != null && IsWritable(exeDir)) return exeDir;
+        Directory.CreateDirectory(AppDataDir);
+        return AppDataDir;
+    });
+
+    public static string DataDir => dataDir.Value;
+    public static string SettingsFile => Path.Combine(DataDir, "MetroKafeDVD2ISO.settings.json");
+    public static string LogsDir => Path.Combine(DataDir, "logs");
+    /// <summary>Önceki sürümlerin ayar dosyası (bir kez taşınır).</summary>
+    public static string LegacySettingsFile => Path.Combine(AppDataDir, "settings.json");
+
+    static bool IsWritable(string dir)
+    {
+        try
+        {
+            string probe = Path.Combine(dir, $".yazma-denemesi-{Environment.ProcessId}.tmp");
+            File.WriteAllText(probe, "");
+            File.Delete(probe);
+            return true;
+        }
+        catch { return false; }
+    }
+}
+
+/// <summary>Programın klasöründeki MetroKafeDVD2ISO.settings.json içinde saklanan kullanıcı ayarları.</summary>
 public sealed class AppSettings
 {
     public bool SkipBadSectors { get; set; } = true;
@@ -17,15 +53,20 @@ public sealed class AppSettings
     public string NamePreset { get; set; } = "Label";
     public CopyMethod CopyMethod { get; set; } = CopyMethod.Auto;
 
-    static string FilePath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MetroKafeDVD2ISO", "settings.json");
-
     public static AppSettings Load()
     {
         try
         {
-            if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new AppSettings();
+            if (File.Exists(AppPaths.SettingsFile))
+                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(AppPaths.SettingsFile)) ?? new AppSettings();
+
+            // Önceki sürümlerde ayarlar %AppData%'daydı: bir kez program klasörüne taşı
+            if (File.Exists(AppPaths.LegacySettingsFile))
+            {
+                var old = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(AppPaths.LegacySettingsFile)) ?? new AppSettings();
+                old.Save();
+                return old;
+            }
         }
         catch { }
         return new AppSettings();
@@ -35,8 +76,8 @@ public sealed class AppSettings
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+            Directory.CreateDirectory(AppPaths.DataDir);
+            File.WriteAllText(AppPaths.SettingsFile, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch { }
     }
