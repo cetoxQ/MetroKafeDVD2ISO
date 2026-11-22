@@ -25,7 +25,9 @@ public sealed class MainForm : Form
 
     // Başlık çubuğu
     readonly FlatButton tabCopy = new() { Text = "Kopyala", Style = FlatButton.Kind.Tab, Selected = true, Dock = DockStyle.Fill };
+    readonly FlatButton tabSettings = new() { Text = "Ayarlar", Style = FlatButton.Kind.Tab, Dock = DockStyle.Fill };
     readonly FlatButton tabUpdates = new() { Text = "Güncellemeler", Style = FlatButton.Kind.Tab, Dock = DockStyle.Fill };
+    readonly FlatButton updateChip = new() { Text = "● Yeni sürüm", Style = FlatButton.Kind.Chip, Selected = true, Padding = new Padding(10, 3, 10, 3), Anchor = AnchorStyles.Left, Visible = false };
 
     // Kopyala sayfası
     readonly Panel pageCopy = new() { Dock = DockStyle.Fill, Padding = new Padding(22, 16, 22, 18) };
@@ -37,8 +39,8 @@ public sealed class MainForm : Form
     readonly TextBox txtName = FieldBox.NewTextBox();
     readonly Dictionary<NamePreset, FlatButton> presetButtons = [];
     readonly Label lblPath = new() { AutoSize = true, ForeColor = Theme.TextDim, Margin = new Padding(2, 8, 0, 0) };
-    readonly CheckBox chkSkipBad = DarkCheck("Okunamayan sektörleri atla (sıfırla doldur) ve devam et", true);
-    readonly CheckBox chkOpenFolder = DarkCheck("Bitince klasörü aç", true);
+    readonly Label lblOptions = new() { AutoSize = true, ForeColor = Theme.TextDim, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(2, 0, 8, 0) };
+    readonly FlatButton btnOptions = new() { Text = "Ayarları değiştir", Padding = new Padding(10, 3, 10, 3), Anchor = AnchorStyles.Left };
     readonly Panel banner = new() { Dock = DockStyle.Top, BackColor = Theme.WarnBg, Padding = new Padding(16, 10, 12, 10), Margin = new Padding(0, 4, 0, 10), Visible = false };
     readonly Label lblBannerTitle = new() { ForeColor = Theme.WarnText };
     readonly Label lblBannerBody = new() { ForeColor = Theme.WarnTextDim };
@@ -53,14 +55,29 @@ public sealed class MainForm : Form
     readonly FlatButton btnAbort = new() { Text = "İptal", Padding = new Padding(22, 9, 22, 9), Enabled = false, Margin = new Padding(0, 0, 8, 0) };
     readonly ListBox lstLog = new() { Dock = DockStyle.Fill, IntegralHeight = false, HorizontalScrollbar = true, BorderStyle = BorderStyle.None, BackColor = Theme.Surface, ForeColor = Theme.TextDim };
 
+    // Ayarlar sayfası
+    readonly Panel pageSettings = new() { Dock = DockStyle.Fill, Padding = new Padding(22, 16, 22, 18), Visible = false };
+    readonly CheckBox chkSkipBad = DarkCheck("Okunamayan sektörleri atla (sıfırla doldur) ve devam et");
+    readonly CheckBox chkTimeout = DarkCheck("Takılan bölgeyi şu süreden sonra atla:");
+    readonly DropDown cmbTimeout = new() { PreferredWidth = 90, Anchor = AnchorStyles.Left };
+    readonly CheckBox chkTwoPass = DarkCheck("Önce sağlam kısımları kopyala, hasarlı bölgelere en sonda dön");
+    readonly CheckBox chkSlowDown = DarkCheck("Hasarlı bölgede sürücüyü yavaşlat");
+    readonly CheckBox chkVerify = DarkCheck("ISO'yu diskle karşılaştırarak doğrula ve SHA-256 hesapla");
+    readonly CheckBox chkEject = DarkCheck("Diski çıkar");
+    readonly CheckBox chkOpenFolder = DarkCheck("ISO'nun bulunduğu klasörü aç");
+    static readonly int[] TimeoutChoices = [5, 10, 15, 30, 60];
+
     // Güncellemeler sayfası
     readonly Panel pageUpdates = new() { Dock = DockStyle.Fill, Padding = new Padding(22, 16, 22, 18), Visible = false };
     readonly Label lblUpdateStatus = new() { AutoSize = true, ForeColor = Theme.TextDim, Margin = new Padding(0, 10, 0, 0) };
     readonly FlatButton btnCheckUpdate = new() { Text = "Güncellemeleri denetle", Style = FlatButton.Kind.Primary, Margin = new Padding(0, 0, 8, 0) };
-    readonly FlatButton btnDownload = new() { Text = "Yeni sürümü indir", Visible = false, Margin = new Padding(0, 0, 8, 0) };
+    readonly FlatButton btnDownload = new() { Text = "Şimdi güncelle", Visible = false, Margin = new Padding(0, 0, 8, 0) };
+    readonly CheckBox chkAutoUpdate = DarkCheck("Açılışta güncellemeleri otomatik denetle");
     readonly FlatButton btnGithub = new() { Text = "GitHub sayfası" };
     readonly RichTextBox rtbNotes = new() { Dock = DockStyle.Fill, ReadOnly = true, BorderStyle = BorderStyle.None, BackColor = Theme.Surface, ForeColor = Theme.Text, DetectUrls = false };
 
+    readonly AppSettings settings = AppSettings.Load();
+    bool loadingSettings;
     NamePreset currentPreset = NamePreset.Label;
     bool suppressNameEvent;
     CancellationTokenSource? cts;
@@ -77,6 +94,7 @@ public sealed class MainForm : Form
     string? damageDetail;
     double damageDetailTime;
     bool stallLogged, hadTrouble;
+    CopyPhase currentPhase;
 
     public MainForm()
     {
@@ -88,15 +106,17 @@ public sealed class MainForm : Form
         ForeColor = Theme.Text;
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(780, 840);
+        ClientSize = new Size(780, 820);
         Padding = new Padding(1);
         DoubleBuffered = true;
         try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
         var content = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg };
         BuildCopyPage();
+        BuildSettingsPage();
         BuildUpdatesPage();
         content.Controls.Add(pageCopy);
+        content.Controls.Add(pageSettings);
         content.Controls.Add(pageUpdates);
         Controls.Add(content);
         Controls.Add(BuildTitleBar());
@@ -119,17 +139,27 @@ public sealed class MainForm : Form
             lblPhase.Text = "İptal ediliyor…";
         };
         statsTimer.Tick += (_, _) => UpdateStats();
-        tabCopy.Click += (_, _) => ShowPage(copy: true);
-        tabUpdates.Click += (_, _) => ShowPage(copy: false);
-        btnCheckUpdate.Click += async (_, _) => await CheckUpdatesAsync();
-        btnDownload.Click += (_, _) => OpenUrl(latestRelease?.PageUrl ?? UpdateChecker.ReleasesUrl);
+        tabCopy.Click += (_, _) => ShowPage(pageCopy);
+        tabSettings.Click += (_, _) => ShowPage(pageSettings);
+        tabUpdates.Click += (_, _) => ShowPage(pageUpdates);
+        updateChip.Click += (_, _) => ShowPage(pageUpdates);
+        btnOptions.Click += (_, _) => ShowPage(pageSettings);
+        btnCheckUpdate.Click += async (_, _) => await CheckUpdatesAsync(silent: false);
+        btnDownload.Click += async (_, _) => await InstallUpdateAsync();
         btnGithub.Click += (_, _) => OpenUrl(UpdateChecker.ReleasesUrl);
+        lstLog.DoubleClick += (_, _) => CopyLogLine();
         FormClosing += OnFormClosing;
-        Shown += (_, _) => { RefreshDrives(); ShowNotes(null); };
+        Shown += async (_, _) =>
+        {
+            RefreshDrives();
+            ShowNotes(null);
+            if (settings.AutoCheckUpdates) await CheckUpdatesAsync(silent: true);
+        };
 
         // Açılışta konum her zaman Masaüstü
         txtFolder.Text = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-        SelectPreset(NamePreset.Label);
+        LoadSettings();
+        SelectPreset(Enum.TryParse(settings.NamePreset, out NamePreset np) && np != NamePreset.None ? np : NamePreset.Label);
         ResetStats();
     }
 
@@ -170,11 +200,8 @@ public sealed class MainForm : Form
     Control BuildTitleBar()
     {
         int h = 44;
-        var bar = new TableLayoutPanel { Dock = DockStyle.Top, Height = h, BackColor = Theme.TitleBar, ColumnCount = 7, RowCount = 1, Margin = new Padding(0) };
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        var bar = new TableLayoutPanel { Dock = DockStyle.Top, Height = h, BackColor = Theme.TitleBar, ColumnCount = 9, RowCount = 1, Margin = new Padding(0) };
+        for (int i = 0; i < 6; i++) bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 46));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 46));
@@ -186,35 +213,38 @@ public sealed class MainForm : Form
         var filler = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0) };
         var min = new TitleButton(TitleButton.Glyph.Minimize);
         var close = new TitleButton(TitleButton.Glyph.Close);
-        tabCopy.Padding = tabUpdates.Padding = new Padding(14, 0, 14, 0);
+        tabCopy.Padding = tabSettings.Padding = tabUpdates.Padding = new Padding(14, 0, 14, 0);
+        updateChip.Margin = new Padding(10, 0, 0, 0);
         min.Click += (_, _) => WindowState = FormWindowState.Minimized;
         close.Click += (_, _) => Close();
 
         bar.Controls.Add(logo, 0, 0);
         bar.Controls.Add(title, 1, 0);
         bar.Controls.Add(tabCopy, 2, 0);
-        bar.Controls.Add(tabUpdates, 3, 0);
-        bar.Controls.Add(filler, 4, 0);
-        bar.Controls.Add(min, 5, 0);
-        bar.Controls.Add(close, 6, 0);
+        bar.Controls.Add(tabSettings, 3, 0);
+        bar.Controls.Add(tabUpdates, 4, 0);
+        bar.Controls.Add(updateChip, 5, 0);
+        bar.Controls.Add(filler, 6, 0);
+        bar.Controls.Add(min, 7, 0);
+        bar.Controls.Add(close, 8, 0);
         foreach (Control c in new Control[] { bar, logo, title, filler }) c.MouseDown += DragWindow;
         return bar;
     }
 
-    void ShowPage(bool copy)
+    void ShowPage(Panel page)
     {
-        pageCopy.Visible = copy;
-        pageUpdates.Visible = !copy;
-        tabCopy.Selected = copy;
-        tabUpdates.Selected = !copy;
+        foreach (var (p, tab) in new[] { (pageCopy, tabCopy), (pageSettings, tabSettings), (pageUpdates, tabUpdates) })
+        {
+            p.Visible = p == page;
+            tab.Selected = p == page;
+        }
     }
 
     // ───────────────────────── Sayfa düzenleri ─────────────────────────
 
-    static CheckBox DarkCheck(string text, bool isChecked) => new()
+    static CheckBox DarkCheck(string text) => new()
     {
         Text = text,
-        Checked = isChecked,
         AutoSize = true,
         ForeColor = Theme.Text,
         FlatStyle = FlatStyle.Flat,
@@ -285,9 +315,8 @@ public sealed class MainForm : Form
         Add(chips);
         Add(lblPath);
 
-        var opts = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, Margin = new Padding(0, 12, 0, 6) };
-        opts.Controls.Add(chkSkipBad);
-        opts.Controls.Add(chkOpenFolder);
+        var opts = Row(lblOptions, btnOptions);
+        opts.Margin = new Padding(0, 12, 0, 8);
         Add(opts);
 
         // Çizik disk uyarı bandı
@@ -328,6 +357,106 @@ public sealed class MainForm : Form
         pageCopy.Controls.Add(root);
     }
 
+    static Label Hint(string text) => new()
+    {
+        Text = text,
+        AutoSize = true,
+        ForeColor = Theme.TextDim,
+        Margin = new Padding(22, 0, 0, 8),
+    };
+
+    void BuildSettingsPage()
+    {
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, AutoScroll = true };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        void Add(Control c) { root.Controls.Add(c); root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); }
+        Control Indent(Control c) { c.Margin = new Padding(c.Margin.Left + 22, c.Margin.Top, 0, c.Margin.Bottom); return c; }
+
+        Add(Section("ÇİZİK / HASARLI DİSKLER"));
+        Add(chkSkipBad);
+        Add(Hint("Kapalıysa okunamayan ilk sektörde işlem durur."));
+
+        var timeoutRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(22, 0, 0, 0) };
+        chkTimeout.Anchor = AnchorStyles.Left;
+        chkTimeout.Margin = new Padding(0, 0, 8, 0);
+        timeoutRow.Controls.Add(chkTimeout);
+        timeoutRow.Controls.Add(cmbTimeout);
+        Add(timeoutRow);
+        Add(Indent(Hint("Sürücü bir bölgede bu kadar takılırsa o bölge atlanır; kilitlenip kalmayı önler.")));
+        Add(Indent(chkTwoPass));
+        Add(Indent(Hint("Hasarlı bölge hızla atlanır, diskin geri kalanı kopyalanır; zor kısımlar en sonda denenir.")));
+        Add(chkSlowDown);
+        Add(Hint("Yavaş dönen disk çizikli bölgede genelde daha iyi okunur. Her sürücü desteklemez."));
+
+        Add(Section("KOPYALAMA BİTİNCE"));
+        Add(chkVerify);
+        Add(Hint("Disk ikinci kez okunur; süre yaklaşık iki katına çıkar. Özet, ISO'nun yanına .sha256 dosyası olarak kaydedilir."));
+        Add(chkEject);
+        Add(chkOpenFolder);
+
+        root.Controls.Add(new Panel { Dock = DockStyle.Fill });
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        pageSettings.Controls.Add(root);
+
+        cmbTimeout.SetItems(TimeoutChoices.Select(t => (object)$"{t} sn"));
+        foreach (var c in new[] { chkSkipBad, chkTimeout, chkTwoPass, chkSlowDown, chkVerify, chkEject, chkOpenFolder, chkAutoUpdate })
+            c.CheckedChanged += (_, _) => SaveSettings();
+        cmbTimeout.SelectedIndexChanged += (_, _) => SaveSettings();
+    }
+
+    void LoadSettings()
+    {
+        loadingSettings = true;
+        chkSkipBad.Checked = settings.SkipBadSectors;
+        chkTimeout.Checked = settings.StallTimeoutEnabled;
+        int idx = Array.IndexOf(TimeoutChoices, settings.StallTimeoutSeconds);
+        cmbTimeout.SelectedIndex = idx >= 0 ? idx : Array.IndexOf(TimeoutChoices, 15);
+        chkTwoPass.Checked = settings.TwoPass;
+        chkSlowDown.Checked = settings.SlowDownOnErrors;
+        chkVerify.Checked = settings.Verify;
+        chkEject.Checked = settings.EjectWhenDone;
+        chkOpenFolder.Checked = settings.OpenFolderWhenDone;
+        chkAutoUpdate.Checked = settings.AutoCheckUpdates;
+        loadingSettings = false;
+        ApplySettingsUi();
+    }
+
+    void SaveSettings()
+    {
+        if (loadingSettings) return;
+        settings.SkipBadSectors = chkSkipBad.Checked;
+        settings.StallTimeoutEnabled = chkTimeout.Checked;
+        if (cmbTimeout.SelectedIndex >= 0) settings.StallTimeoutSeconds = TimeoutChoices[cmbTimeout.SelectedIndex];
+        settings.TwoPass = chkTwoPass.Checked;
+        settings.SlowDownOnErrors = chkSlowDown.Checked;
+        settings.Verify = chkVerify.Checked;
+        settings.EjectWhenDone = chkEject.Checked;
+        settings.OpenFolderWhenDone = chkOpenFolder.Checked;
+        settings.AutoCheckUpdates = chkAutoUpdate.Checked;
+        settings.Save();
+        ApplySettingsUi();
+    }
+
+    // Bağımlı seçenekleri aç/kapat ve kopyala sayfasındaki özeti güncelle
+    void ApplySettingsUi()
+    {
+        chkTimeout.Enabled = chkTwoPass.Enabled = chkSkipBad.Checked;
+        cmbTimeout.Enabled = chkSkipBad.Checked && chkTimeout.Checked;
+
+        var parts = new List<string>();
+        if (settings.SkipBadSectors)
+        {
+            parts.Add("hatalı sektör atlanır");
+            if (settings.StallTimeoutEnabled) parts.Add($"{settings.StallTimeoutSeconds} sn takılmada atla");
+            if (settings.TwoPass) parts.Add("önce sağlam kısımlar");
+        }
+        else parts.Add("hatalı sektörde dur");
+        if (settings.SlowDownOnErrors) parts.Add("yavaşlatma");
+        if (settings.Verify) parts.Add("doğrulama");
+        if (settings.EjectWhenDone) parts.Add("diski çıkar");
+        lblOptions.Text = "Seçenekler:  " + string.Join("  ·  ", parts);
+    }
+
     void BuildUpdatesPage()
     {
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1 };
@@ -350,6 +479,8 @@ public sealed class MainForm : Form
         Add(buttons);
         lblUpdateStatus.Text = "Yeni sürüm olup olmadığını görmek için \"Güncellemeleri denetle\"ye basın.";
         Add(lblUpdateStatus);
+        chkAutoUpdate.Margin = new Padding(0, 12, 0, 0);
+        Add(chkAutoUpdate);
 
         Add(Section("SÜRÜM NOTLARI"));
         var notesBox = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Surface, Padding = new Padding(14, 10, 8, 10), Margin = new Padding(0) };
@@ -397,7 +528,7 @@ public sealed class MainForm : Form
         rtbNotes.SelectionStart = 0;
     }
 
-    async Task CheckUpdatesAsync()
+    async Task CheckUpdatesAsync(bool silent)
     {
         btnCheckUpdate.Enabled = false;
         btnDownload.Visible = false;
@@ -416,6 +547,8 @@ public sealed class MainForm : Form
                 lblUpdateStatus.ForeColor = Theme.Success;
                 lblUpdateStatus.Text = $"Yeni sürüm mevcut: {latestRelease.Tag}  (yüklü: v{UpdateChecker.Format(current)})";
                 btnDownload.Visible = true;
+                updateChip.Text = $"● Yeni sürüm: {latestRelease.Tag}";
+                updateChip.Visible = true;
                 ShowNotes(latestRelease);
             }
             else
@@ -426,13 +559,52 @@ public sealed class MainForm : Form
         }
         catch (Exception ex)
         {
-            lblUpdateStatus.ForeColor = Theme.Error;
+            lblUpdateStatus.ForeColor = silent ? Theme.TextDim : Theme.Error;
             lblUpdateStatus.Text = "Güncelleme denetlenemedi: " + ex.Message;
         }
         finally
         {
             btnCheckUpdate.Enabled = true;
         }
+    }
+
+    async Task InstallUpdateAsync()
+    {
+        if (latestRelease == null) return;
+        if (latestRelease.DownloadUrl == null)
+        {
+            OpenUrl(latestRelease.PageUrl);
+            return;
+        }
+        if (cts != null)
+        {
+            Warn("ISO oluşturma devam ediyorken güncelleme yapılamaz.");
+            return;
+        }
+        btnDownload.Enabled = btnCheckUpdate.Enabled = false;
+        lblUpdateStatus.ForeColor = Theme.TextDim;
+        try
+        {
+            var prog = new Progress<double>(pct => lblUpdateStatus.Text = $"İndiriliyor… %{pct:0}");
+            await UpdateChecker.DownloadAndInstallAsync(latestRelease, prog);
+            lblUpdateStatus.Text = "Kuruluyor; uygulama yeniden başlatılacak…";
+            await Task.Delay(300);
+            Application.Exit();
+        }
+        catch (Exception ex)
+        {
+            lblUpdateStatus.ForeColor = Theme.Error;
+            lblUpdateStatus.Text = "Güncelleme yapılamadı: " + ex.Message;
+            btnDownload.Enabled = btnCheckUpdate.Enabled = true;
+        }
+    }
+
+    void CopyLogLine()
+    {
+        if (lstLog.SelectedItem is not string line) return;
+        int sha = line.IndexOf("SHA-256: ", StringComparison.Ordinal);
+        try { Clipboard.SetText(sha >= 0 ? line[(sha + 9)..].Trim() : line); } catch { return; }
+        Log("Panoya kopyalandı.");
     }
 
     static void OpenUrl(string url)
@@ -496,7 +668,7 @@ public sealed class MainForm : Form
         }
         else
         {
-            long size = DiscReader.GetDiscSize(item.Letter);
+            long size = DeviceSource.GetDiscSize(item.Letter);
             string fs = "";
             try { fs = d.DriveFormat; } catch { }
             string kind = size > 900L * 1024 * 1024 ? "DVD" : "CD";
@@ -565,7 +737,7 @@ public sealed class MainForm : Form
     async Task StartCopyAsync()
     {
         if (cmbDrive.SelectedItem is not DriveItem item) return;
-        if (!new DriveInfo(item.Letter.ToString()).IsReady && !DiscReader.IsMediaPresent(item.Letter))
+        if (!new DriveInfo(item.Letter.ToString()).IsReady && !DeviceSource.IsMediaPresent(item.Letter))
         {
             Warn("Sürücüde disk yok veya disk henüz hazır değil.");
             return;
@@ -585,7 +757,7 @@ public sealed class MainForm : Form
             return;
         }
 
-        long size = DiscReader.GetDiscSize(item.Letter);
+        long size = DeviceSource.GetDiscSize(item.Letter);
         if (size <= 0) { Warn("Disk boyutu okunamadı."); return; }
 
         // Boş alan ve FAT32 4 GB sınırı kontrolü
@@ -617,12 +789,12 @@ public sealed class MainForm : Form
         BeginStats(size);
 
         var prog = new Progress<CopyProgress>(OnProgress);
-        bool skip = chkSkipBad.Checked;
+        var options = settings.ToCopyOptions();
         var token = cts.Token;
         try
         {
-            var result = await Task.Run(() => DiscReader.Copy(item.Letter, output, skip, prog, token), token);
-            copyDone = result.BytesWritten;
+            var result = await Task.Run(() => DiscCopier.Copy(item.Letter, output, options, prog, token), token);
+            copyDone = copyTotal;
             EndStats();
             progress.Value = progress.Maximum;
             lblPercent.Text = "%100";
@@ -630,18 +802,42 @@ public sealed class MainForm : Form
             string summary = $"Tamamlandı — {FormatSize(result.BytesWritten)}, süre {result.Elapsed:hh\\:mm\\:ss}, ortalama {FormatSize((long)avg)}/s" +
                              (result.BadSectors > 0 ? $", okunamayan sektör: {result.BadSectors}" : "");
             lblPhase.Text = "Tamamlandı.";
+            cardDone.CaptionText = "Kopyalanan";
+            cardDone.ValueText = FormatSize(result.BytesWritten);
             cardSpeed.ValueText = $"ort. {FormatSize((long)avg)}/s";
             cardEta.ValueText = "Bitti";
             Log(summary);
             if (hadTrouble && result.BadSectors == 0)
                 Log("Disk bazı bölgelerde zor okundu ancak tüm veriler eksiksiz kurtarıldı.");
+
+            string? verifyProblem = null;
+            if (result.Sha256 != null)
+            {
+                Log($"SHA-256: {result.Sha256}");
+                Log("(Özeti panoya kopyalamak için satıra çift tıklayın.)");
+                if (result.VerifyMismatches > 0 || result.VerifyUnreadable > 0)
+                {
+                    verifyProblem = $"Doğrulama: {result.VerifyMismatches} sektör diskle uyuşmuyor, {result.VerifyUnreadable} sektör ikinci okumada okunamadı.";
+                    Log(verifyProblem);
+                }
+                else
+                {
+                    Log("Doğrulama başarılı: ISO diskle birebir aynı" + (result.BadSectors > 0 ? " (atlanan sektörler hariç)." : "."));
+                }
+            }
+
+            if (settings.EjectWhenDone)
+                Log(DeviceSource.Eject(item.Letter) ? "Disk çıkarıldı." : "Disk çıkarılamadı.");
             if (!Focused) Activate();
-            if (result.BadSectors > 0)
-                MessageBox.Show(this, $"ISO oluşturuldu ancak {result.BadSectors} sektör okunamadı ve sıfırla dolduruldu.\n" +
-                                      "Disk çizik/hasarlı olabilir; bazı dosyalar bozuk olabilir.\n\n" +
+            if (result.BadSectors > 0 || verifyProblem != null)
+                MessageBox.Show(this, (result.BadSectors > 0
+                                          ? $"ISO oluşturuldu ancak {result.BadSectors} sektör okunamadı ve sıfırla dolduruldu.\n" +
+                                            "Disk çizik/hasarlı olabilir; bazı dosyalar bozuk olabilir.\n\n"
+                                          : "") +
+                                      (verifyProblem != null ? verifyProblem + "\n\n" : "") +
                                       "İpucu: Diski yumuşak bir bezle merkezden dışa doğru silip tekrar deneyebilirsiniz.",
                     AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            if (chkOpenFolder.Checked)
+            if (settings.OpenFolderWhenDone)
                 Process.Start("explorer.exe", $"/select,\"{output}\"");
         }
         catch (Exception ex) when (token.IsCancellationRequested)
@@ -686,6 +882,8 @@ public sealed class MainForm : Form
         peakSpeed = 0;
         damageDetail = null;
         stallLogged = hadTrouble = false;
+        currentPhase = CopyPhase.Reading;
+        cardDone.CaptionText = "Kopyalanan";
         samples.Clear();
         copyWatch.Restart();
         lastProgressChange = 0;
@@ -715,6 +913,17 @@ public sealed class MainForm : Form
     void OnProgress(CopyProgress p)
     {
         double now = copyWatch.Elapsed.TotalSeconds;
+        if (p.Phase != currentPhase)
+        {
+            // Yeni aşama: hız ölçümünü sıfırla (doğrulamada ilerleme baştan başlar)
+            currentPhase = p.Phase;
+            samples.Clear();
+            peakSpeed = 0;
+            copyDone = p.BytesDone;
+            lastProgressChange = now;
+            damageDetail = null;
+            cardDone.CaptionText = p.Phase == CopyPhase.Verifying ? "Doğrulanan" : "Kopyalanan";
+        }
         if (p.Message != null) Log(p.Message);
         if (p.Detail != null) { damageDetail = p.Detail; damageDetailTime = now; hadTrouble = true; }
         if (p.BytesDone != copyDone) { copyDone = p.BytesDone; lastProgressChange = now; }
@@ -766,10 +975,10 @@ public sealed class MainForm : Form
         {
             ShowBanner("⚠  Hasarlı bölge okunuyor — kopyalama yavaşlayabilir",
                 $"Okunamayan bölge sektör sektör tekrar deneniyor ({damageDetail}). " +
-                (chkSkipBad.Checked ? "Okunamayan sektörler atlanıp sıfırla doldurulacak." : "Bir sektör okunamazsa işlem duracak."));
+                (settings.SkipBadSectors ? "Okunamayan sektörler atlanıp sıfırla doldurulacak." : "Bir sektör okunamazsa işlem duracak."));
             lblPhase.Text = "Hasarlı bölge okunuyor…";
         }
-        else if (now > 10 && peakSpeed > 0 && speed < peakSpeed * 0.3)
+        else if (currentPhase == CopyPhase.Reading && now > 10 && peakSpeed > 0 && speed < peakSpeed * 0.3)
         {
             ShowBanner($"⚠  Okuma hızı belirgin şekilde düştü ({FormatSize((long)speed)}/s, en yüksek {FormatSize((long)peakSpeed)}/s)",
                 "Diskin bu bölgesinde çizik veya leke olabilir; sürücü yavaşlayarak okumaya çalışıyor. İşlem devam ediyor.");
@@ -780,7 +989,12 @@ public sealed class MainForm : Form
         {
             HideBanner();
             stallLogged = false;
-            lblPhase.Text = "Okunuyor…";
+            lblPhase.Text = currentPhase switch
+            {
+                CopyPhase.Recovering => "Hasarlı bölgeler tekrar deneniyor…",
+                CopyPhase.Verifying => "Doğrulanıyor…",
+                _ => "Okunuyor…",
+            };
         }
     }
 
@@ -819,7 +1033,8 @@ public sealed class MainForm : Form
 
     void SetBusy(bool busy)
     {
-        cmbDrive.Enabled = btnRefresh.Enabled = txtFolder.Enabled = txtName.Enabled = btnBrowse.Enabled = chkSkipBad.Enabled = !busy;
+        cmbDrive.Enabled = btnRefresh.Enabled = txtFolder.Enabled = txtName.Enabled = btnBrowse.Enabled = btnOptions.Enabled = !busy;
+        pageSettings.Enabled = !busy;
         foreach (var b in presetButtons.Values) b.Enabled = !busy;
         btnCreate.Enabled = !busy;
         btnAbort.Enabled = busy;

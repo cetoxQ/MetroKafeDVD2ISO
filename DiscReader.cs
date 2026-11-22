@@ -1,30 +1,301 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using Microsoft.Win32.SafeHandles;
 
 namespace MetroKafeDVD2ISO;
 
-/// <param name="Detail">Hasarlı bölgede tekrar deneme yapılırken durum bilgisi.</param>
-public sealed record CopyProgress(long BytesDone, long TotalBytes, int BadSectors, string? Message, string? Detail = null);
+public enum CopyPhase { Reading, Recovering, Verifying }
 
-public sealed record CopyResult(long BytesWritten, int BadSectors, TimeSpan Elapsed);
+/// <param name="Detail">Hasarlı bölgede tekrar deneme yapılırken durum bilgisi.</param>
+public sealed record CopyProgress(CopyPhase Phase, long BytesDone, long TotalBytes, int BadSectors, string? Message = null, string? Detail = null);
+
+public sealed record CopyResult(long BytesWritten, int BadSectors, TimeSpan Elapsed,
+    string? Sha256 = null, int VerifyMismatches = 0, int VerifyUnreadable = 0);
+
+public sealed class CopyOptions
+{
+    public bool SkipBadSectors { get; init; } = true;
+    /// <summary>Bir okuma bu süreden uzun sürerse kesilip atlanır (0 = kapalı).</summary>
+    public int StallTimeoutSeconds { get; init; } = 15;
+    /// <summary>Önce sağlam bölümleri oku, hasarlı bölgelere en sonda dön.</summary>
+    public bool TwoPass { get; init; } = true;
+    /// <summary>Hasarlı bölgede sürücü hızını düşür.</summary>
+    public bool SlowDownOnErrors { get; init; } = true;
+    public bool Verify { get; init; }
+}
+
+public enum ReadStatus { Ok, Error, TimedOut }
+
+/// <summary>Sektör okunabilen kaynak (gerçek sürücü veya test için taklit).</summary>
+public interface ISectorSource : IDisposable
+{
+    long Size { get; }
+    ReadStatus Read(long offset, byte[] buffer, int bufferOffset, int count);
+    /// <summary>Sürücüyü yavaş (true) veya en yüksek (false) hıza ayarlar; destek yoksa false döner.</summary>
+    bool SetSlowSpeed(bool slow);
+}
 
 /// <summary>
-/// Optik sürücüyü ham olarak (\\.\X:) sektör sektör okuyup ISO dosyasına yazar.
+/// Diski ISO dosyasına kopyalar. İki geçişli modda hasarlı bölgeler önce atlanır
+/// (atlama aralığı art arda hatalarda büyür), sağlam kısımlar bittikten sonra sektör sektör kurtarılır.
 /// </summary>
-public static class DiscReader
+public sealed class DiscCopier
 {
     public const int SectorSize = 2048;
-    const int SectorsPerChunk = 32;           // 64 KB okuma blokları
+    const int ChunkSize = SectorSize * 32;            // 64 KB okuma blokları
     const int RetriesPerSector = 3;
+    const long MaxSkip = 16L * 1024 * 1024;
+    const long RestoreSpeedAfter = 64L * 1024 * 1024; // tek geçişte bu kadar sorunsuz okumadan sonra hızı geri aç
 
+    readonly ISectorSource src;
+    readonly CopyOptions opt;
+    readonly IProgress<CopyProgress> progress;
+    readonly CancellationToken ct;
+    readonly byte[] buffer = new byte[ChunkSize];
+    readonly List<long> badSectors = [];
+    readonly long total;
+    long processed;
+    CopyPhase phase;
+    bool slowed, speedWarned;
+    long lastReportTicks;
+
+    public DiscCopier(ISectorSource src, CopyOptions opt, IProgress<CopyProgress> progress, CancellationToken ct)
+    {
+        this.src = src;
+        this.opt = opt;
+        this.progress = progress;
+        this.ct = ct;
+        total = src.Size / SectorSize * SectorSize;
+    }
+
+    bool TwoPass => opt.TwoPass && opt.SkipBadSectors;
+
+    /// <summary>Optik sürücüden kopyala (çağıran iş parçacığında çalışır).</summary>
+    public static CopyResult Copy(char drive, string outputPath, CopyOptions opt, IProgress<CopyProgress> progress, CancellationToken ct)
+    {
+        int timeout = opt.SkipBadSectors ? opt.StallTimeoutSeconds : 0;
+        using var dev = new DeviceSource(drive, timeout, ct);
+        return new DiscCopier(dev, opt, progress, ct).Run(outputPath);
+    }
+
+    public CopyResult Run(string outputPath)
+    {
+        if (total <= 0) throw new IOException("Disk boyutu okunamadı. Sürücüde okunabilir bir disk olduğundan emin olun.");
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            using (var output = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.Read, 1 << 20))
+            {
+                output.SetLength(total); // sıfırla dolu; atlanan bölgeler sıfır kalır
+                CopyAll(output);
+                output.Flush(true);
+            }
+        }
+        finally
+        {
+            if (slowed) src.SetSlowSpeed(false);
+        }
+
+        var elapsed = sw.Elapsed;
+        if (!opt.Verify) return new CopyResult(total, badSectors.Count, elapsed);
+        var (sha, mismatches, unreadable) = Verify(outputPath);
+        return new CopyResult(total, badSectors.Count, sw.Elapsed, sha, mismatches, unreadable);
+    }
+
+    void CopyAll(FileStream output)
+    {
+        var pending = new List<(long start, long len)>();
+        long pos = 0, skip = 0, lastErrorPos = -1;
+        phase = CopyPhase.Reading;
+        Report(force: true);
+
+        while (pos < total)
+        {
+            ct.ThrowIfCancellationRequested();
+            int len = (int)Math.Min(ChunkSize, total - pos);
+            var st = src.Read(pos, buffer, 0, len);
+            if (st == ReadStatus.Ok)
+            {
+                Write(output, pos, len);
+                pos += len;
+                processed += len;
+                skip = 0;
+                if (slowed && !TwoPass && pos - lastErrorPos > RestoreSpeedAfter) SetSlow(false);
+                Report();
+                continue;
+            }
+
+            string why = st == ReadStatus.TimedOut ? "okuma zaman aşımına uğradı" : "okunamadı";
+            if (TwoPass)
+            {
+                long skipLen = Math.Min(len + skip, total - pos);
+                pending.Add((pos, skipLen));
+                Report(force: true, message: $"Hasarlı bölge ({FormatMB(pos)} konumunda {why}); {FormatMB(skipLen, true)} atlandı, en sonda tekrar denenecek");
+                pos += skipLen;
+                skip = skip == 0 ? ChunkSize : Math.Min(skip * 2, MaxSkip);
+            }
+            else
+            {
+                if (opt.SlowDownOnErrors) SetSlow(true);
+                RecoverRange(output, pos, len);
+                pos += len;
+                lastErrorPos = pos;
+            }
+        }
+
+        if (pending.Count == 0) return;
+
+        phase = CopyPhase.Recovering;
+        long pendingBytes = pending.Sum(p => p.len);
+        Report(force: true, message: $"Sağlam bölümler bitti. {pending.Count} hasarlı bölge ({FormatMB(pendingBytes, true)}) tekrar deneniyor");
+        if (opt.SlowDownOnErrors) SetSlow(true);
+        foreach (var (start, len) in pending) RecoverRange(output, start, len);
+    }
+
+    /// <summary>Bir aralığı önce blok blok, okunamayan bloklarda sektör sektör kurtarır.</summary>
+    void RecoverRange(FileStream output, long start, long length)
+    {
+        for (long off = start; off < start + length; off += ChunkSize)
+        {
+            ct.ThrowIfCancellationRequested();
+            int len = (int)Math.Min(ChunkSize, start + length - off);
+            var st = src.Read(off, buffer, 0, len);
+            if (st == ReadStatus.Ok)
+            {
+                Write(output, off, len);
+                processed += len;
+                Report();
+                continue;
+            }
+
+            for (int s = 0; s < len; s += SectorSize)
+            {
+                long sector = (off + s) / SectorSize;
+                st = ReadStatus.Error;
+                for (int attempt = 1; attempt <= RetriesPerSector; attempt++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    Report(force: true, detail: $"sektör {sector:N0}, deneme {attempt}/{RetriesPerSector}");
+                    st = src.Read(off + s, buffer, s, SectorSize);
+                    // Zaman aşımında tekrar denemek yine dakikalar sürer; doğrudan atla
+                    if (st != ReadStatus.Error) break;
+                }
+
+                if (st == ReadStatus.Ok)
+                {
+                    Write(output, off + s, SectorSize, s);
+                }
+                else
+                {
+                    string why = st == ReadStatus.TimedOut ? "zaman aşımı" : "okunamadı";
+                    if (!opt.SkipBadSectors)
+                        throw new IOException($"Sektör {sector:N0} okunamadı ({why}). Disk çizik veya hasarlı olabilir.");
+                    badSectors.Add(sector);
+                    Report(force: true, message: $"Sektör {sector:N0} atlandı ({why}), sıfırla dolduruldu");
+                }
+                processed += SectorSize;
+            }
+        }
+    }
+
+    (string sha, int mismatches, int unreadable) Verify(string outputPath)
+    {
+        phase = CopyPhase.Verifying;
+        processed = 0;
+        Report(force: true, message: "Doğrulama başladı: disk tekrar okunup ISO ile karşılaştırılıyor");
+
+        var bad = badSectors.ToHashSet();
+        var fileBuf = new byte[ChunkSize];
+        int mismatches = 0, unreadable = 0;
+        using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        using var file = new FileStream(outputPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20);
+
+        for (long pos = 0; pos < total; pos += ChunkSize)
+        {
+            ct.ThrowIfCancellationRequested();
+            int len = (int)Math.Min(ChunkSize, total - pos);
+            file.ReadExactly(fileBuf, 0, len);
+            sha.AppendData(fileBuf, 0, len);
+
+            bool chunkOk = src.Read(pos, buffer, 0, len) == ReadStatus.Ok;
+            if (!chunkOk || !buffer.AsSpan(0, len).SequenceEqual(fileBuf.AsSpan(0, len)))
+            {
+                for (int s = 0; s < len; s += SectorSize)
+                {
+                    long sector = (pos + s) / SectorSize;
+                    if (bad.Contains(sector)) continue;
+                    if (!chunkOk && src.Read(pos + s, buffer, s, SectorSize) != ReadStatus.Ok)
+                    {
+                        unreadable++;
+                        continue;
+                    }
+                    if (!buffer.AsSpan(s, SectorSize).SequenceEqual(fileBuf.AsSpan(s, SectorSize)))
+                    {
+                        mismatches++;
+                        Report(force: true, message: $"Doğrulama: sektör {sector:N0} diskle uyuşmuyor");
+                    }
+                }
+            }
+            processed = pos + len;
+            Report();
+        }
+
+        string hash = Convert.ToHexString(sha.GetHashAndReset()).ToLowerInvariant();
+        try { File.WriteAllText(outputPath + ".sha256", $"{hash} *{Path.GetFileName(outputPath)}\n"); } catch { }
+        return (hash, mismatches, unreadable);
+    }
+
+    void SetSlow(bool slow)
+    {
+        if (slowed == slow) return;
+        if (src.SetSlowSpeed(slow))
+        {
+            slowed = slow;
+            Report(force: true, message: slow ? "Sürücü hızı düşürüldü (hasarlı bölge daha yavaş okunuyor)" : "Sürücü hızı normale döndü");
+        }
+        else if (!speedWarned)
+        {
+            speedWarned = true;
+            Report(force: true, message: "Sürücü hız ayarını desteklemiyor; normal hızda devam ediliyor");
+        }
+    }
+
+    void Write(FileStream output, long offset, int count, int bufferOffset = 0)
+    {
+        output.Position = offset;
+        output.Write(buffer, bufferOffset, count);
+    }
+
+    void Report(bool force = false, string? message = null, string? detail = null)
+    {
+        long now = Stopwatch.GetTimestamp();
+        if (!force && Stopwatch.GetElapsedTime(lastReportTicks, now).TotalMilliseconds < 150 && processed < total) return;
+        lastReportTicks = now;
+        progress.Report(new CopyProgress(phase, processed, total, badSectors.Count, message, detail));
+    }
+
+    static string FormatMB(long bytes, bool size = false) =>
+        size && bytes < 1024 * 1024 ? $"{bytes / 1024} KB" : $"{bytes / (1024.0 * 1024):0.#} MB";
+}
+
+/// <summary>Optik sürücüyü ham olarak (\\.\X:) okur. Zaman aşımı ve iptal için bekleyen okumayı keser.</summary>
+public sealed class DeviceSource : ISectorSource
+{
     const uint GENERIC_READ = 0x80000000;
     const uint FILE_SHARE_READ = 0x1, FILE_SHARE_WRITE = 0x2;
     const uint OPEN_EXISTING = 3;
     const uint FSCTL_ALLOW_EXTENDED_DASD_IO = 0x00090083;
     const uint IOCTL_DISK_GET_LENGTH_INFO = 0x0007405C;
     const uint IOCTL_STORAGE_CHECK_VERIFY = 0x002D4800;
+    const uint IOCTL_STORAGE_EJECT_MEDIA = 0x002D4808;
+    const uint IOCTL_CDROM_SET_SPEED = 0x00024060;
+    const uint THREAD_TERMINATE = 0x0001;
+    const int ERROR_OPERATION_ABORTED = 995;
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct CDROM_SET_SPEED { public int RequestType; public ushort ReadSpeed; public ushort WriteSpeed; public int RotationControl; }
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     static extern SafeFileHandle CreateFile(string name, uint access, uint share, IntPtr sa, uint disposition, uint flags, IntPtr template);
@@ -33,7 +304,13 @@ public static class DiscReader
     static extern bool DeviceIoControl(SafeFileHandle h, uint code, IntPtr inBuf, int inSize, out long outBuf, int outSize, out int returned, IntPtr overlapped);
 
     [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool DeviceIoControl(SafeFileHandle h, uint code, ref CDROM_SET_SPEED inBuf, int inSize, IntPtr outBuf, int outSize, out int returned, IntPtr overlapped);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool SetFilePointerEx(SafeFileHandle h, long distance, out long newPos, uint method);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern unsafe bool ReadFile(SafeFileHandle h, byte* buffer, int toRead, out int read, IntPtr overlapped);
 
     [DllImport("kernel32.dll")]
     static extern uint GetCurrentThreadId();
@@ -44,18 +321,114 @@ public static class DiscReader
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool CancelSynchronousIo(SafeWaitHandle thread);
 
-    const uint THREAD_TERMINATE = 0x0001;
+    readonly SafeFileHandle dev;
+    readonly SafeWaitHandle thread;
+    readonly CancellationTokenRegistration cancelReg;
+    readonly Thread? watchdog;
+    readonly long timeoutTicks;
+    readonly CancellationToken ct;
+    long readStart;            // okuma başlangıcı (Stopwatch zaman damgası), 0 = boşta
+    volatile bool timedOut, disposed;
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    static extern unsafe bool ReadFile(SafeFileHandle h, byte* buffer, int toRead, out int read, IntPtr overlapped);
+    public long Size { get; }
 
-    static SafeFileHandle OpenDevice(char drive)
+    /// <summary>Okuma yapacak iş parçacığında oluşturulmalıdır.</summary>
+    public DeviceSource(char drive, int timeoutSeconds, CancellationToken ct)
     {
-        var h = CreateFile($@"\\.\{drive}:", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
+        this.ct = ct;
+        dev = Open(drive, GENERIC_READ);
+        DeviceIoControl(dev, FSCTL_ALLOW_EXTENDED_DASD_IO, IntPtr.Zero, 0, out _, 0, out _, IntPtr.Zero);
+        Size = GetDiscSize(drive);
+        Drive = drive;
+
+        // Çizik diskte ReadFile dakikalarca dönmeyebilir; iptal veya zaman aşımında bekleyen okumayı kes
+        thread = OpenThread(THREAD_TERMINATE, false, GetCurrentThreadId());
+        cancelReg = ct.Register(() => { if (!thread.IsInvalid) CancelSynchronousIo(thread); });
+        if (timeoutSeconds > 0)
+        {
+            timeoutTicks = (long)(timeoutSeconds * (double)Stopwatch.Frequency);
+            watchdog = new Thread(Watch) { IsBackground = true, Name = "okuma-bekçisi" };
+            watchdog.Start();
+        }
+    }
+
+    public char Drive { get; }
+
+    bool IsDvd => Size > 900L * 1024 * 1024;
+
+    void Watch()
+    {
+        while (!disposed)
+        {
+            Thread.Sleep(200);
+            long s = Interlocked.Read(ref readStart);
+            if (s != 0 && !timedOut && Stopwatch.GetTimestamp() - s > timeoutTicks)
+            {
+                timedOut = true;
+                CancelSynchronousIo(thread);
+            }
+        }
+    }
+
+    public unsafe ReadStatus Read(long offset, byte[] buffer, int bufferOffset, int count)
+    {
+        for (int spurious = 0; ; spurious++)
+        {
+            timedOut = false;
+            long start = Stopwatch.GetTimestamp();
+            Interlocked.Exchange(ref readStart, start);
+            bool ok;
+            fixed (byte* p = &buffer[bufferOffset])
+                ok = ReadAll(offset, p, count);
+            int err = Marshal.GetLastWin32Error();
+            Interlocked.Exchange(ref readStart, 0);
+
+            if (ok) return ReadStatus.Ok;
+            ct.ThrowIfCancellationRequested();
+            if (err == ERROR_OPERATION_ABORTED && timedOut)
+            {
+                // Bekçi bir önceki okumayı hedeflemiş olabilir; süre gerçekten dolmadıysa tekrar dene
+                if (Stopwatch.GetTimestamp() - start >= timeoutTicks * 9 / 10) return ReadStatus.TimedOut;
+                if (spurious < 2) continue;
+            }
+            return ReadStatus.Error;
+        }
+    }
+
+    unsafe bool ReadAll(long offset, byte* dest, int count)
+    {
+        if (!SetFilePointerEx(dev, offset, out _, 0)) return false;
+        int pos = 0;
+        while (pos < count)
+        {
+            if (!ReadFile(dev, dest + pos, count - pos, out int read, IntPtr.Zero) || read == 0)
+                return false;
+            pos += read;
+        }
+        return true;
+    }
+
+    public bool SetSlowSpeed(bool slow)
+    {
+        // KB/s: DVD 2x ≈ 2770, CD 4x ≈ 706; 0xFFFF = en yüksek hız
+        var req = new CDROM_SET_SPEED { ReadSpeed = slow ? (ushort)(IsDvd ? 2770 : 706) : (ushort)0xFFFF, WriteSpeed = 0xFFFF };
+        return DeviceIoControl(dev, IOCTL_CDROM_SET_SPEED, ref req, Marshal.SizeOf<CDROM_SET_SPEED>(), IntPtr.Zero, 0, out _, IntPtr.Zero);
+    }
+
+    public void Dispose()
+    {
+        disposed = true;
+        cancelReg.Dispose();
+        watchdog?.Join(1000);
+        thread.Dispose();
+        dev.Dispose();
+    }
+
+    static SafeFileHandle Open(char drive, uint access)
+    {
+        var h = CreateFile($@"\\.\{drive}:", access, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
         if (h.IsInvalid)
             throw new Win32Exception(Marshal.GetLastWin32Error(), $"{drive}: sürücüsü açılamadı");
-        // Dosya sisteminin bildirdiği sınırın ötesini de okuyabilmek için
-        DeviceIoControl(h, FSCTL_ALLOW_EXTENDED_DASD_IO, IntPtr.Zero, 0, out _, 0, out _, IntPtr.Zero);
         return h;
     }
 
@@ -77,7 +450,8 @@ public static class DiscReader
         long size = 0;
         try
         {
-            using var h = OpenDevice(drive);
+            using var h = Open(drive, GENERIC_READ);
+            DeviceIoControl(h, FSCTL_ALLOW_EXTENDED_DASD_IO, IntPtr.Zero, 0, out _, 0, out _, IntPtr.Zero);
             if (DeviceIoControl(h, IOCTL_DISK_GET_LENGTH_INFO, IntPtr.Zero, 0, out long len, sizeof(long), out _, IntPtr.Zero))
                 size = len;
         }
@@ -86,91 +460,17 @@ public static class DiscReader
         {
             try { size = new DriveInfo(drive.ToString()).TotalSize; } catch { }
         }
-        return size / SectorSize * SectorSize;
+        return size / DiscCopier.SectorSize * DiscCopier.SectorSize;
     }
 
-    public static unsafe CopyResult Copy(char drive, string outputPath, bool skipBadSectors,
-        IProgress<CopyProgress> progress, CancellationToken ct)
+    /// <summary>Diski sürücüden çıkarır.</summary>
+    public static bool Eject(char drive)
     {
-        long total = GetDiscSize(drive);
-        if (total <= 0) throw new IOException("Disk boyutu okunamadı. Sürücüde okunabilir bir disk olduğundan emin olun.");
-
-        using var dev = OpenDevice(drive);
-        var sw = Stopwatch.StartNew();
-        var buffer = GC.AllocateUninitializedArray<byte>(SectorSize * SectorsPerChunk, pinned: true);
-        long done = 0;
-        int bad = 0;
-        long lastReportMs = -1000;
-
-        // Çizik diskte ReadFile dakikalarca dönmeyebilir; iptal edilince bekleyen okumayı kes
-        using var thread = OpenThread(THREAD_TERMINATE, false, GetCurrentThreadId());
-        using var cancelReg = ct.Register(() => { if (!thread.IsInvalid) CancelSynchronousIo(thread); });
-
-        using var output = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.Read, 1 << 20);
-        output.SetLength(total);
-        output.Position = 0;
-
-        fixed (byte* p = buffer)
+        try
         {
-            while (done < total)
-            {
-                ct.ThrowIfCancellationRequested();
-                int want = (int)Math.Min(buffer.Length, total - done);
-
-                if (!TryRead(dev, done, p, want))
-                {
-                    // Blok okunamadı: sektör sektör tekrar dene
-                    for (int off = 0; off < want; off += SectorSize)
-                    {
-                        ct.ThrowIfCancellationRequested();
-                        bool ok = false;
-                        long sector = (done + off) / SectorSize;
-                        for (int attempt = 1; attempt <= RetriesPerSector && !ok; attempt++)
-                        {
-                            ct.ThrowIfCancellationRequested();
-                            progress.Report(new CopyProgress(done + off, total, bad, null,
-                                $"sektör {sector:N0}, deneme {attempt}/{RetriesPerSector}"));
-                            ok = TryRead(dev, done + off, p + off, SectorSize);
-                        }
-                        if (!ok)
-                        {
-                            int err = Marshal.GetLastWin32Error();
-                            if (!skipBadSectors)
-                                throw new IOException($"Sektör {sector:N0} okunamadı: {new Win32Exception(err).Message}");
-                            new Span<byte>(p + off, SectorSize).Clear();
-                            bad++;
-                            progress.Report(new CopyProgress(done + off, total, bad,
-                                $"Okunamayan sektör {sector:N0} atlandı (sıfırla dolduruldu)"));
-                        }
-                    }
-                }
-
-                output.Write(buffer, 0, want);
-                done += want;
-
-                long ms = sw.ElapsedMilliseconds;
-                if (ms - lastReportMs >= 150 || done == total)
-                {
-                    lastReportMs = ms;
-                    progress.Report(new CopyProgress(done, total, bad, null));
-                }
-            }
+            using var h = Open(drive, GENERIC_READ);
+            return DeviceIoControl(h, IOCTL_STORAGE_EJECT_MEDIA, IntPtr.Zero, 0, out _, 0, out _, IntPtr.Zero);
         }
-
-        output.Flush(true);
-        return new CopyResult(done, bad, sw.Elapsed);
-    }
-
-    static unsafe bool TryRead(SafeFileHandle h, long offset, byte* dest, int count)
-    {
-        if (!SetFilePointerEx(h, offset, out _, 0)) return false;
-        int pos = 0;
-        while (pos < count)
-        {
-            if (!ReadFile(h, dest + pos, count - pos, out int read, IntPtr.Zero) || read == 0)
-                return false;
-            pos += read;
-        }
-        return true;
+        catch { return false; }
     }
 }

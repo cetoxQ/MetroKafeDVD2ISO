@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -10,7 +10,7 @@
     <AssemblyName>MetroKafeDVD2ISO</AssemblyName>
     <RootNamespace>MetroKafeDVD2ISO</RootNamespace>
     <Product>MetroKafe DVD2ISO</Product>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Arayüz kodla kuruluyor, Designer serileştirmesi kullanılmıyor -->

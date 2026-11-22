@@ -11,7 +11,11 @@ DVD ve CD'lerden ISO kalıbı oluşturan, sade ve modern bir Windows uygulaması
 - Okunamayan sektörleri tekrar dener; okunamazsa sıfırla doldurup devam eder (isteğe bağlı)
 - Sürücü takılı kaldığında bile İptal çalışır
 - Boş alan ve FAT32 4 GB sınırı denetimi
-- Güncellemeler sayfası (GitHub Releases)
+- Takılan bölgeyi belirlenen süre sonra atlama; önce sağlam kısımları kopyalayıp hasarlı bölgelere en sonda dönme
+- Hasarlı bölgede sürücü hızını düşürme
+- Bitince doğrulama (diskle karşılaştırma + SHA-256) ve diski çıkarma
+- Ayarlar sekmesi (seçenekler kalıcı)
+- Güncellemeler sayfası, açılışta otomatik denetim ve tek tıkla güncelleme (GitHub Releases)
 
 ## Kullanım
 1. Diski takın, uygulamayı açın.

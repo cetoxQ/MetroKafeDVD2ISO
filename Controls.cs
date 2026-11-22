@@ -245,6 +245,7 @@ sealed class DropDown : Control
 
     public event EventHandler? SelectedIndexChanged;
     public string Placeholder { get; set; } = "";
+    public int PreferredWidth { get; set; } = 200;
     public IReadOnlyList<object> Items => items;
     public object? SelectedItem => selectedIndex >= 0 && selectedIndex < items.Count ? items[selectedIndex] : null;
 
@@ -278,7 +279,7 @@ sealed class DropDown : Control
     }
 
     public override Size GetPreferredSize(Size proposedSize) =>
-        new(200, TextRenderer.MeasureText("Ag", Font).Height + 14);
+        new(PreferredWidth, TextRenderer.MeasureText("Ag", Font).Height + 14);
 
     protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); Invalidate(); }
     protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
@@ -369,6 +370,7 @@ sealed class StatCard : Panel
         Controls.Add(caption);
     }
 
+    public string CaptionText { get => caption.Text; set => caption.Text = value; }
     public string ValueText { get => value.Text; set => this.value.Text = value; }
     public Color ValueColor { get => value.ForeColor; set => this.value.ForeColor = value; }
 
