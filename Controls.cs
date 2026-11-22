@@ -270,6 +270,12 @@ sealed class DropDown : Control
         Margin = new Padding(0, 0, 8, 0);
     }
 
+    public void ReplaceItem(int index, object item)
+    {
+        items[index] = item;
+        Invalidate();
+    }
+
     public void SetItems(IEnumerable<object> newItems)
     {
         items.Clear();

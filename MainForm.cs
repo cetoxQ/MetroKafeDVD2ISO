@@ -16,12 +16,22 @@ public sealed class MainForm : Form
 
     enum NamePreset { None, Label, LabelDate, LabelDateTime, DateTime }
 
-    sealed record DriveItem(char Letter, string Label, bool Ready)
+    enum DriveState { Probing, Ready, NoDisc, NotResponding }
+
+    sealed record DriveItem(char Letter, DriveState State, WorkerMessage? Info)
     {
-        public override string ToString() => Ready
-            ? $"{Letter}:   {(string.IsNullOrEmpty(Label) ? "(etiketsiz disk)" : Label)}"
-            : $"{Letter}:   (disk yok)";
+        public string Label => Info?.Label ?? "";
+
+        public override string ToString() => State switch
+        {
+            DriveState.Ready => $"{Letter}:   {(string.IsNullOrEmpty(Label) ? "(etiketsiz disk)" : Label)}",
+            DriveState.Probing => $"{Letter}:   (disk okunuyor…)",
+            DriveState.NotResponding => $"{Letter}:   (sürücü yanıt vermiyor)",
+            _ => $"{Letter}:   (disk yok)",
+        };
     }
+
+    static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(15);
 
     // Başlık çubuğu
     readonly FlatButton tabCopy = new() { Text = "Kopyala", Style = FlatButton.Kind.Tab, Selected = true, Dock = DockStyle.Fill };
@@ -77,6 +87,9 @@ public sealed class MainForm : Form
     readonly RichTextBox rtbNotes = new() { Dock = DockStyle.Fill, ReadOnly = true, BorderStyle = BorderStyle.None, BackColor = Theme.Surface, ForeColor = Theme.Text, DetectUrls = false };
 
     readonly AppSettings settings = AppSettings.Load();
+    readonly Dictionary<char, DriveItem> drives = [];
+    readonly HashSet<char> probing = [];
+    readonly Dictionary<char, System.Diagnostics.Process> stuckProbes = [];
     bool loadingSettings;
     NamePreset currentPreset = NamePreset.Label;
     bool suppressNameEvent;
@@ -633,19 +646,17 @@ public sealed class MainForm : Form
         return t;
     }
 
+    // Sürücü listesi diske dokunmadan çıkarılır; her sürücü ayrı işlemde, süre sınırıyla tanınır
     void RefreshDrives()
     {
         char? selected = (cmbDrive.SelectedItem as DriveItem)?.Letter;
-        var items = new List<DriveItem>();
-        foreach (var d in DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.CDRom))
-        {
-            bool ready = d.IsReady;
-            string label = "";
-            if (ready) try { label = d.VolumeLabel; } catch { }
-            items.Add(new DriveItem(d.Name[0], label, ready));
-        }
-        cmbDrive.SetItems(items);
+        var letters = DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.CDRom).Select(d => d.Name[0]).ToList();
+        foreach (var gone in drives.Keys.Except(letters).ToList()) drives.Remove(gone);
+        foreach (var l in letters)
+            if (!probing.Contains(l) || !drives.ContainsKey(l)) drives[l] = new DriveItem(l, DriveState.Probing, null);
 
+        var items = letters.Select(l => drives[l]).ToList();
+        cmbDrive.SetItems(items);
         if (items.Count == 0)
         {
             lblInfo.Text = "Bilgisayarda DVD/CD sürücüsü bulunamadı.";
@@ -653,27 +664,79 @@ public sealed class MainForm : Form
             return;
         }
         int idx = items.FindIndex(i => i.Letter == selected);
-        if (idx < 0) idx = items.FindIndex(i => i.Ready);
         cmbDrive.SelectedIndex = Math.Max(0, idx);
+        UpdateDriveInfo();
+        foreach (var l in letters) _ = ProbeDriveAsync(l);
+    }
+
+    async Task ProbeDriveAsync(char letter)
+    {
+        if (!probing.Add(letter)) return;
+        try
+        {
+            // Önceki tanıma hâlâ sürücüde takılıysa yenisini başlatma
+            if (stuckProbes.TryGetValue(letter, out var stuck))
+            {
+                if (!stuck.HasExited) { SetDrive(new DriveItem(letter, DriveState.NotResponding, null)); return; }
+                stuckProbes.Remove(letter);
+            }
+
+            var outcome = await WorkerHost.ProbeAsync(letter, ProbeTimeout);
+            if (outcome.TimedOut)
+            {
+                if (outcome.Process != null) stuckProbes[letter] = outcome.Process;
+                SetDrive(new DriveItem(letter, DriveState.NotResponding, null));
+            }
+            else
+            {
+                var info = outcome.Info;
+                SetDrive(new DriveItem(letter, info is { Type: "probe", Ready: true } ? DriveState.Ready : DriveState.NoDisc, info));
+            }
+        }
+        catch (Exception ex)
+        {
+            SetDrive(new DriveItem(letter, DriveState.NoDisc, new WorkerMessage { Type = "error", Message = ex.Message }));
+        }
+        finally
+        {
+            probing.Remove(letter);
+        }
+    }
+
+    void SetDrive(DriveItem item)
+    {
+        if (!drives.ContainsKey(item.Letter)) return; // bu arada sürücü çıkarıldı
+        drives[item.Letter] = item;
+        int idx = cmbDrive.Items.ToList().FindIndex(o => o is DriveItem d && d.Letter == item.Letter);
+        if (idx < 0) return;
+        cmbDrive.ReplaceItem(idx, item);
+        if (idx == cmbDrive.SelectedIndex) UpdateDriveInfo();
     }
 
     void UpdateDriveInfo()
     {
         if (cmbDrive.SelectedItem is not DriveItem item) return;
-        var d = new DriveInfo(item.Letter.ToString());
-        if (!d.IsReady)
+        btnCreate.Enabled = false;
+        switch (item.State)
         {
-            lblInfo.Text = "Sürücü hazır değil — lütfen bir disk takın.";
-            btnCreate.Enabled = false;
-        }
-        else
-        {
-            long size = DeviceSource.GetDiscSize(item.Letter);
-            string fs = "";
-            try { fs = d.DriveFormat; } catch { }
-            string kind = size > 900L * 1024 * 1024 ? "DVD" : "CD";
-            lblInfo.Text = $"Etiket: {(item.Label.Length > 0 ? item.Label : "-")}     Tür: {kind}     Dosya sistemi: {fs}     Boyut: {FormatSize(size)}";
-            btnCreate.Enabled = cts == null;
+            case DriveState.Probing:
+                lblInfo.Text = "Disk okunuyor…";
+                break;
+            case DriveState.NotResponding:
+                lblInfo.Text = $"Sürücü {ProbeTimeout.TotalSeconds:0} sn içinde yanıt vermedi. Disk dönmeye başlıyor olabilir ya da sürücü takılmış olabilir.\n" +
+                               "Birkaç saniye sonra Yenile'ye basın. Düzelmezse USB kablosunu çıkarıp takın (mümkünse bilgisayarın arka portuna).";
+                break;
+            case DriveState.NoDisc:
+                lblInfo.Text = item.Info?.Type == "error"
+                    ? "Disk okunamadı: " + item.Info.Message
+                    : "Sürücü hazır değil — lütfen bir disk takın.";
+                break;
+            default:
+                var info = item.Info!;
+                string kind = info.Size > 900L * 1024 * 1024 ? "DVD" : "CD";
+                lblInfo.Text = $"Etiket: {(item.Label.Length > 0 ? item.Label : "-")}     Tür: {kind}     Dosya sistemi: {info.FileSystem}     Boyut: {FormatSize(info.Size)}";
+                btnCreate.Enabled = cts == null;
+                break;
         }
         if (currentPreset != NamePreset.None) SelectPreset(currentPreset);
     }
@@ -736,8 +799,7 @@ public sealed class MainForm : Form
 
     async Task StartCopyAsync()
     {
-        if (cmbDrive.SelectedItem is not DriveItem item) return;
-        if (!new DriveInfo(item.Letter.ToString()).IsReady && !DeviceSource.IsMediaPresent(item.Letter))
+        if (cmbDrive.SelectedItem is not DriveItem { State: DriveState.Ready, Info: { } info } item)
         {
             Warn("Sürücüde disk yok veya disk henüz hazır değil.");
             return;
@@ -757,7 +819,7 @@ public sealed class MainForm : Form
             return;
         }
 
-        long size = DeviceSource.GetDiscSize(item.Letter);
+        long size = info.Size;
         if (size <= 0) { Warn("Disk boyutu okunamadı."); return; }
 
         // Boş alan ve FAT32 4 GB sınırı kontrolü
@@ -788,12 +850,16 @@ public sealed class MainForm : Form
         Log($"{item.Letter}: → {output}  ({FormatSize(size)})");
         BeginStats(size);
 
-        var prog = new Progress<CopyProgress>(OnProgress);
+        var prog = new Progress<WorkerMessage>(m =>
+        {
+            if (m.Type == "progress") OnProgress(new CopyProgress(m.Phase, m.Done, m.Total, m.Bad, m.Message, m.Detail));
+            else if (m.Message != null) Log(m.Message);
+        });
         var options = settings.ToCopyOptions();
         var token = cts.Token;
         try
         {
-            var result = await Task.Run(() => DiscCopier.Copy(item.Letter, output, options, prog, token), token);
+            var result = await WorkerHost.CopyAsync(item.Letter, output, options, prog, token);
             copyDone = copyTotal;
             EndStats();
             progress.Value = progress.Maximum;
@@ -827,7 +893,7 @@ public sealed class MainForm : Form
             }
 
             if (settings.EjectWhenDone)
-                Log(DeviceSource.Eject(item.Letter) ? "Disk çıkarıldı." : "Disk çıkarılamadı.");
+                Log(await WorkerHost.EjectAsync(item.Letter, ProbeTimeout) ? "Disk çıkarıldı." : "Disk çıkarılamadı.");
             if (!Focused) Activate();
             if (result.BadSectors > 0 || verifyProblem != null)
                 MessageBox.Show(this, (result.BadSectors > 0

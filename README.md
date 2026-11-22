@@ -4,6 +4,8 @@ DVD ve CD'lerden ISO kalıbı oluşturan, sade ve modern bir Windows uygulaması
 
 ## Özellikler
 - DVD/CD sürücülerini otomatik bulur; disk takılıp çıkarılınca listeyi yeniler
+- Disk boyutunu dosya sisteminden (ISO9660/UDF) okur; yazılabilir disklerin sonundaki boş sektörleri hata saymaz
+- Diske erişen işler ayrı işlemde çalışır; sürücü takılsa da pencere donmaz, çarpı her zaman çalışır
 - Kayıt konumu (varsayılan Masaüstü) ve dosya adı ayrı seçilir
 - Hazır dosya adları: Disk adı, Disk adı + tarih, Disk adı + tarih + saat, Tarih + saat
 - Anlık kopyalama hızı (MB/s ve DVD/CD hız katı), kalan süre, hatalı sektör sayısı

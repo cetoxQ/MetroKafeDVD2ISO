@@ -1,5 +1,12 @@
 # Sürüm notları
 
+## v1.3.0 — 2026-11-23
+- Disk boyutu artık dosya sisteminden (ISO9660 / UDF) okunuyor; yazılabilir disklerin sonundaki veri içermeyen sektörler "hatalı" sayılmıyor
+- Sürücünün bildirdiği fazladan sektörler en sonda deneniyor: okunabilenler ISO'ya ekleniyor, okunamayanlar hata sayılmıyor
+- Pencere artık diske hiç erişmiyor: tanıma, kopyalama ve diski çıkarma ayrı bir işlemde çalışıyor, sürücü takılsa da pencere donmuyor
+- Yanıt vermeyen sürücü 15 sn sonra listede "sürücü yanıt vermiyor" olarak gösteriliyor
+- Kopyalama sırasında sürücü takılsa bile çarpı düğmesi programı kapatıyor
+
 ## v1.2.0 — 2026-11-22
 - Yeni Ayarlar sekmesi; seçenekler kalıcı olarak saklanıyor
 - Takılan bölgeyi belirlenen süreden (5–60 sn) sonra atlama; kilitlenip kalma önlendi

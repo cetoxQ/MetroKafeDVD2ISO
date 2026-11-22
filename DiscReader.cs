@@ -32,6 +32,8 @@ public enum ReadStatus { Ok, Error, TimedOut }
 public interface ISectorSource : IDisposable
 {
     long Size { get; }
+    /// <summary>Size'dan sonra sürücünün bildirdiği, veri içermesi beklenmeyen kuyruk; en sonda denenir.</summary>
+    long TailLength => 0;
     ReadStatus Read(long offset, byte[] buffer, int bufferOffset, int count);
     /// <summary>Sürücüyü yavaş (true) veya en yüksek (false) hıza ayarlar; destek yoksa false döner.</summary>
     bool SetSlowSpeed(bool slow);
@@ -55,7 +57,7 @@ public sealed class DiscCopier
     readonly CancellationToken ct;
     readonly byte[] buffer = new byte[ChunkSize];
     readonly List<long> badSectors = [];
-    readonly long total;
+    long total;
     long processed;
     CopyPhase phase;
     bool slowed, speedWarned;
@@ -72,14 +74,6 @@ public sealed class DiscCopier
 
     bool TwoPass => opt.TwoPass && opt.SkipBadSectors;
 
-    /// <summary>Optik sürücüden kopyala (çağıran iş parçacığında çalışır).</summary>
-    public static CopyResult Copy(char drive, string outputPath, CopyOptions opt, IProgress<CopyProgress> progress, CancellationToken ct)
-    {
-        int timeout = opt.SkipBadSectors ? opt.StallTimeoutSeconds : 0;
-        using var dev = new DeviceSource(drive, timeout, ct);
-        return new DiscCopier(dev, opt, progress, ct).Run(outputPath);
-    }
-
     public CopyResult Run(string outputPath)
     {
         if (total <= 0) throw new IOException("Disk boyutu okunamadı. Sürücüde okunabilir bir disk olduğundan emin olun.");
@@ -90,6 +84,7 @@ public sealed class DiscCopier
             {
                 output.SetLength(total); // sıfırla dolu; atlanan bölgeler sıfır kalır
                 CopyAll(output);
+                ReadTail(output);
                 output.Flush(true);
             }
         }
@@ -152,6 +147,51 @@ public sealed class DiscCopier
         Report(force: true, message: $"Sağlam bölümler bitti. {pending.Count} hasarlı bölge ({FormatMB(pendingBytes, true)}) tekrar deneniyor");
         if (opt.SlowDownOnErrors) SetSlow(true);
         foreach (var (start, len) in pending) RecoverRange(output, start, len);
+    }
+
+    /// <summary>
+    /// Dosya sisteminin bittiği yerden sonra sürücünün bildirdiği kuyruğu dener. Yazılabilir disklerde bu
+    /// sektörler genelde okunamaz ve veri içermez; okunabildiği kadarı eklenir, ilk hatada durulur ve
+    /// bu hata sayılmaz. Böylece hem sahte "hatalı sektör" çıkmaz hem de gerçek veri kesilmez.
+    /// </summary>
+    void ReadTail(FileStream output)
+    {
+        long end = total + src.TailLength / SectorSize * SectorSize, pos = total;
+        if (end <= total) return;
+        const int TailChunk = SectorSize * 16;
+
+        while (pos < end)
+        {
+            ct.ThrowIfCancellationRequested();
+            int len = (int)Math.Min(TailChunk, end - pos);
+            if (src.Read(pos, buffer, 0, len) == ReadStatus.Ok)
+            {
+                Write(output, pos, len);
+                pos += len;
+                continue;
+            }
+            // Blok okunamadı: okunabilen sektörleri (ör. son UDF çapası) tek tek al, ilk hatada bitir
+            int s = 0;
+            while (s < len && src.Read(pos + s, buffer, s, SectorSize) == ReadStatus.Ok)
+            {
+                Write(output, pos + s, SectorSize, s);
+                s += SectorSize;
+            }
+            pos += s;
+            break;
+        }
+
+        long added = (pos - total) / SectorSize, skipped = (end - pos) / SectorSize;
+        if (added > 0)
+            Report(force: true, message: $"Dosya sisteminden sonra {added:N0} sektör daha okunabildi ve ISO'ya eklendi.");
+        if (skipped > 0)
+        {
+            Report(force: true, message: $"Disk sonundaki {skipped:N0} sektör okunamadı. Bunlar veri içermeyen kuyruk sektörleri " +
+                                         "(yazılabilir disklerde normaldir); hata sayılmadı.");
+            output.SetLength(pos);
+        }
+        total = pos;
+        processed = total;
     }
 
     /// <summary>Bir aralığı önce blok blok, okunamayan bloklarda sektör sektör kurtarır.</summary>
@@ -330,7 +370,12 @@ public sealed class DeviceSource : ISectorSource
     long readStart;            // okuma başlangıcı (Stopwatch zaman damgası), 0 = boşta
     volatile bool timedOut, disposed;
 
+    /// <summary>Kopyalanacak boyut: dosya sistemi boyutu biliniyorsa o, yoksa sürücünün bildirdiği.</summary>
     public long Size { get; }
+    /// <summary>Sürücünün bildirdiği boyut (yazılabilir disklerde okunamayan kuyruk sektörlerini içerebilir).</summary>
+    public long DeviceLength { get; }
+    /// <summary>ISO9660/UDF dosya sisteminin bildirdiği boyut; bulunamazsa 0.</summary>
+    public long FileSystemSize { get; }
 
     /// <summary>Okuma yapacak iş parçacığında oluşturulmalıdır.</summary>
     public DeviceSource(char drive, int timeoutSeconds, CancellationToken ct)
@@ -338,7 +383,6 @@ public sealed class DeviceSource : ISectorSource
         this.ct = ct;
         dev = Open(drive, GENERIC_READ);
         DeviceIoControl(dev, FSCTL_ALLOW_EXTENDED_DASD_IO, IntPtr.Zero, 0, out _, 0, out _, IntPtr.Zero);
-        Size = GetDiscSize(drive);
         Drive = drive;
 
         // Çizik diskte ReadFile dakikalarca dönmeyebilir; iptal veya zaman aşımında bekleyen okumayı kes
@@ -350,7 +394,15 @@ public sealed class DeviceSource : ISectorSource
             watchdog = new Thread(Watch) { IsBackground = true, Name = "okuma-bekçisi" };
             watchdog.Start();
         }
+
+        DeviceLength = DeviceIoControl(dev, IOCTL_DISK_GET_LENGTH_INFO, IntPtr.Zero, 0, out long len, sizeof(long), out _, IntPtr.Zero)
+            ? len / DiscCopier.SectorSize * DiscCopier.SectorSize : 0;
+        FileSystemSize = DiscLayout.ReadFileSystemSize((sector, buf) => Read(sector * DiscCopier.SectorSize, buf, 0, DiscCopier.SectorSize) == ReadStatus.Ok);
+        Size = DiscLayout.ChooseSize(DeviceLength, FileSystemSize);
+        TailLength = Math.Max(0, DeviceLength - Size);
     }
+
+    public long TailLength { get; }
 
     public char Drive { get; }
 
@@ -442,25 +494,6 @@ public sealed class DeviceSource : ISectorSource
             return DeviceIoControl(h, IOCTL_STORAGE_CHECK_VERIFY, IntPtr.Zero, 0, out _, 0, out _, IntPtr.Zero);
         }
         catch { return false; }
-    }
-
-    /// <summary>Diskin toplam veri boyutu (bayt, sektör katı).</summary>
-    public static long GetDiscSize(char drive)
-    {
-        long size = 0;
-        try
-        {
-            using var h = Open(drive, GENERIC_READ);
-            DeviceIoControl(h, FSCTL_ALLOW_EXTENDED_DASD_IO, IntPtr.Zero, 0, out _, 0, out _, IntPtr.Zero);
-            if (DeviceIoControl(h, IOCTL_DISK_GET_LENGTH_INFO, IntPtr.Zero, 0, out long len, sizeof(long), out _, IntPtr.Zero))
-                size = len;
-        }
-        catch { }
-        if (size <= 0)
-        {
-            try { size = new DriveInfo(drive.ToString()).TotalSize; } catch { }
-        }
-        return size / DiscCopier.SectorSize * DiscCopier.SectorSize;
     }
 
     /// <summary>Diski sürücüden çıkarır.</summary>
