@@ -63,6 +63,7 @@ public sealed class MainForm : Form
     readonly StatCard cardBad = new("Hatalı sektör");
     readonly FlatButton btnCreate = new() { Text = "ISO Oluştur", Style = FlatButton.Kind.Primary, Padding = new Padding(26, 9, 26, 9) };
     readonly FlatButton btnAbort = new() { Text = "İptal", Padding = new Padding(22, 9, 22, 9), Enabled = false, Margin = new Padding(0, 0, 8, 0) };
+    readonly FlatButton btnCopyLog = new() { Text = "Günlüğü kopyala", Padding = new Padding(16, 9, 16, 9), Margin = new Padding(0, 0, 8, 0) };
     readonly ListBox lstLog = new() { Dock = DockStyle.Fill, IntegralHeight = false, HorizontalScrollbar = true, BorderStyle = BorderStyle.None, BackColor = Theme.Surface, ForeColor = Theme.TextDim };
 
     // Ayarlar sayfası
@@ -161,6 +162,7 @@ public sealed class MainForm : Form
         btnDownload.Click += async (_, _) => await InstallUpdateAsync();
         btnGithub.Click += (_, _) => OpenUrl(UpdateChecker.ReleasesUrl);
         lstLog.DoubleClick += (_, _) => CopyLogLine();
+        btnCopyLog.Click += (_, _) => CopyLog();
         FormClosing += OnFormClosing;
         Shown += async (_, _) =>
         {
@@ -360,6 +362,7 @@ public sealed class MainForm : Form
         var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0, 0, 0, 12) };
         buttons.Controls.Add(btnCreate);
         buttons.Controls.Add(btnAbort);
+        buttons.Controls.Add(btnCopyLog);
         Add(buttons);
 
         var logBox = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Surface, Padding = new Padding(10, 8, 6, 8), Margin = new Padding(0), MinimumSize = new Size(0, 60) };
@@ -848,6 +851,7 @@ public sealed class MainForm : Form
         SetBusy(true);
         lstLog.Items.Clear();
         Log($"{item.Letter}: → {output}  ({FormatSize(size)})");
+        Log($"Disk: etiket '{item.Label}', dosya sistemi {info.FileSystem}, sürücü {info.DeviceLength / 2048:N0} sektör bildiriyor.");
         BeginStats(size);
 
         var prog = new Progress<WorkerMessage>(m =>
@@ -925,6 +929,7 @@ public sealed class MainForm : Form
         }
         finally
         {
+            SaveLog(item.Label.Length > 0 ? item.Label : "disk");
             cts.Dispose();
             cts = null;
             SetBusy(false);
@@ -1123,6 +1128,33 @@ public sealed class MainForm : Form
     {
         lstLog.Items.Add($"[{DateTime.Now:HH:mm:ss}]  {msg}");
         lstLog.TopIndex = Math.Max(0, lstLog.Items.Count - 1);
+    }
+
+    string LogText() => string.Join(Environment.NewLine, lstLog.Items.Cast<string>());
+
+    void CopyLog()
+    {
+        if (lstLog.Items.Count == 0) return;
+        try { Clipboard.SetText($"{AppName} v{UpdateChecker.Format(UpdateChecker.Current)}{Environment.NewLine}{LogText()}"); }
+        catch { return; }
+        btnCopyLog.Text = "Kopyalandı ✓";
+        var t = new System.Windows.Forms.Timer { Interval = 1500 };
+        t.Tick += (_, _) => { t.Dispose(); btnCopyLog.Text = "Günlüğü kopyala"; };
+        t.Start();
+    }
+
+    /// <summary>Her kopyalamanın günlüğü %AppData%\MetroKafeDVD2ISO\logs altına kaydedilir.</summary>
+    void SaveLog(string label)
+    {
+        try
+        {
+            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MetroKafeDVD2ISO", "logs");
+            Directory.CreateDirectory(dir);
+            string path = Path.Combine(dir, $"{DateTime.Now:yyyy-MM-dd_HH-mm-ss}_{SanitizeFileName(label)}.txt");
+            File.WriteAllText(path, $"{AppName} v{UpdateChecker.Format(UpdateChecker.Current)}{Environment.NewLine}{LogText()}{Environment.NewLine}");
+            Log("Günlük kaydedildi: " + path);
+        }
+        catch { }
     }
 
     void Warn(string msg) => MessageBox.Show(this, msg, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);

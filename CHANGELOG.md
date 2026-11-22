@@ -1,5 +1,12 @@
 # Sürüm notları
 
+## v1.3.1 — 2026-11-23
+- Diskin iz/oturum düzeni (TOC) okunuyor; yalnız veri izleri kopyalanıyor
+- Çok oturumlu disklerde oturum aralarındaki hiç okunamayan boşluklar okunmadan sıfırla dolduruluyor ve hasarlı sayılmıyor; ISO açıldığında son eklenen dosyalar da görünüyor
+- Karma (veri + ses) disklerde ses izleri okunmaya çalışılmıyor
+- Disk düzeni günlüğe yazılıyor; her kopyalamanın günlüğü %AppData%\MetroKafeDVD2ISO\logs altına kaydediliyor
+- "Günlüğü kopyala" düğmesi
+
 ## v1.3.0 — 2026-11-23
 - Disk boyutu artık dosya sisteminden (ISO9660 / UDF) okunuyor; yazılabilir disklerin sonundaki veri içermeyen sektörler "hatalı" sayılmıyor
 - Sürücünün bildirdiği fazladan sektörler en sonda deneniyor: okunabilenler ISO'ya ekleniyor, okunamayanlar hata sayılmıyor

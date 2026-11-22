@@ -34,6 +34,10 @@ public interface ISectorSource : IDisposable
     long Size { get; }
     /// <summary>Size'dan sonra sürücünün bildirdiği, veri içermesi beklenmeyen kuyruk; en sonda denenir.</summary>
     long TailLength => 0;
+    /// <summary>Okunmadan sıfırla doldurulacak aralıklar (bayt): oturum araları, ses izleri.</summary>
+    IReadOnlyList<(long Start, long End)> Gaps => [];
+    /// <summary>Çok oturumlu diskte son oturumun başı (sektör); tek oturumda 0.</summary>
+    long LastSessionStart => 0;
     ReadStatus Read(long offset, byte[] buffer, int bufferOffset, int count);
     /// <summary>Sürücüyü yavaş (true) veya en yüksek (false) hıza ayarlar; destek yoksa false döner.</summary>
     bool SetSlowSpeed(bool slow);
@@ -57,6 +61,7 @@ public sealed class DiscCopier
     readonly CancellationToken ct;
     readonly byte[] buffer = new byte[ChunkSize];
     readonly List<long> badSectors = [];
+    readonly HashSet<long> mergedSectors = [];   // diskten farklı olması beklenen sektörler (doğrulamada atlanır)
     long total;
     long processed;
     CopyPhase phase;
@@ -84,6 +89,7 @@ public sealed class DiscCopier
             {
                 output.SetLength(total); // sıfırla dolu; atlanan bölgeler sıfır kalır
                 CopyAll(output);
+                MergeLastSessionDescriptors(output);
                 ReadTail(output);
                 output.Flush(true);
             }
@@ -109,7 +115,17 @@ public sealed class DiscCopier
         while (pos < total)
         {
             ct.ThrowIfCancellationRequested();
-            int len = (int)Math.Min(ChunkSize, total - pos);
+            // Oturum araları / ses izleri: hiç okunmaz, dosyada sıfır kalır
+            if (InGap(pos, out long gapEnd))
+            {
+                long end = Math.Min(gapEnd, total);
+                processed += end - pos;
+                pos = end;
+                Report();
+                continue;
+            }
+            long limit = Math.Min(total, NextGapStart(pos));
+            int len = (int)Math.Min(ChunkSize, limit - pos);
             var st = src.Read(pos, buffer, 0, len);
             if (st == ReadStatus.Ok)
             {
@@ -125,7 +141,7 @@ public sealed class DiscCopier
             string why = st == ReadStatus.TimedOut ? "okuma zaman aşımına uğradı" : "okunamadı";
             if (TwoPass)
             {
-                long skipLen = Math.Min(len + skip, total - pos);
+                long skipLen = Math.Min(len + skip, limit - pos);
                 pending.Add((pos, skipLen));
                 Report(force: true, message: $"Hasarlı bölge ({FormatMB(pos)} konumunda {why}); {FormatMB(skipLen, true)} atlandı, en sonda tekrar denenecek");
                 pos += skipLen;
@@ -147,6 +163,60 @@ public sealed class DiscCopier
         Report(force: true, message: $"Sağlam bölümler bitti. {pending.Count} hasarlı bölge ({FormatMB(pendingBytes, true)}) tekrar deneniyor");
         if (opt.SlowDownOnErrors) SetSlow(true);
         foreach (var (start, len) in pending) RecoverRange(output, start, len);
+    }
+
+    bool InGap(long pos, out long end)
+    {
+        foreach (var (s, e) in src.Gaps)
+            if (pos >= s && pos < e) { end = e; return true; }
+        end = 0;
+        return false;
+    }
+
+    long NextGapStart(long pos)
+    {
+        long next = long.MaxValue;
+        foreach (var (s, _) in src.Gaps)
+            if (s > pos) next = Math.Min(next, s);
+        return next;
+    }
+
+    /// <summary>
+    /// Çok oturumlu disklerde ISO9660, son oturumun başı + 16'ya yeni birim tanımlayıcıları yazar ve bunlar
+    /// tüm oturumların son halini (mutlak adreslerle) tarif eder. ISO dosyası açılırken yalnız sektör 16'ya
+    /// bakıldığı için son oturumun tanımlayıcıları oraya kopyalanır; yoksa ISO'da sadece ilk oturum görünür.
+    /// </summary>
+    void MergeLastSessionDescriptors(FileStream output)
+    {
+        long session = src.LastSessionStart;
+        if (session <= 0) return;
+
+        List<byte[]> ReadDescriptors(long start)
+        {
+            var list = new List<byte[]>();
+            for (int i = 0; i < 16; i++)
+            {
+                var b = new byte[SectorSize];
+                if (src.Read((start + 16 + i) * SectorSize, b, 0, SectorSize) != ReadStatus.Ok) break;
+                if (b[1] != 'C' || b[2] != 'D' || b[3] != '0' || b[4] != '0' || b[5] != '1') break;
+                list.Add(b);
+                if (b[0] == 255) break; // sonlandırıcı
+            }
+            return list;
+        }
+
+        var last = ReadDescriptors(session);
+        var first = ReadDescriptors(0);
+        // Yalnız ilk oturumun tanımlayıcılarının kapladığı yere yaz; ardındaki gerçek veriye dokunma
+        if (!last.Any(d => d[0] == 1) || last.Count > first.Count) return;
+
+        for (int i = 0; i < last.Count; i++)
+        {
+            output.Position = (16 + i) * (long)SectorSize;
+            output.Write(last[i], 0, SectorSize);
+            mergedSectors.Add(16 + i);
+        }
+        Report(force: true, message: "Çok oturumlu disk: son oturumun dosya sistemi tanımı ISO'nun başına yazıldı; ISO açıldığında son eklenen dosyalar da görünür.");
     }
 
     /// <summary>
@@ -246,7 +316,8 @@ public sealed class DiscCopier
         processed = 0;
         Report(force: true, message: "Doğrulama başladı: disk tekrar okunup ISO ile karşılaştırılıyor");
 
-        var bad = badSectors.ToHashSet();
+        // Atlanan ve bilerek değiştirilen sektörler karşılaştırılmaz
+        var bad = badSectors.Concat(mergedSectors).ToHashSet();
         var fileBuf = new byte[ChunkSize];
         int mismatches = 0, unreadable = 0;
         using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -259,13 +330,15 @@ public sealed class DiscCopier
             file.ReadExactly(fileBuf, 0, len);
             sha.AppendData(fileBuf, 0, len);
 
-            bool chunkOk = src.Read(pos, buffer, 0, len) == ReadStatus.Ok;
+            // Boşluk içeren blok diskten bütün olarak okunmaz; sektör sektör, boşluklar atlanarak karşılaştırılır
+            bool touchesGap = InGap(pos, out _) || NextGapStart(pos) < pos + len;
+            bool chunkOk = !touchesGap && src.Read(pos, buffer, 0, len) == ReadStatus.Ok;
             if (!chunkOk || !buffer.AsSpan(0, len).SequenceEqual(fileBuf.AsSpan(0, len)))
             {
                 for (int s = 0; s < len; s += SectorSize)
                 {
                     long sector = (pos + s) / SectorSize;
-                    if (bad.Contains(sector)) continue;
+                    if (bad.Contains(sector) || InGap(pos + s, out _)) continue;
                     if (!chunkOk && src.Read(pos + s, buffer, s, SectorSize) != ReadStatus.Ok)
                     {
                         unreadable++;
@@ -331,6 +404,7 @@ public sealed class DeviceSource : ISectorSource
     const uint IOCTL_STORAGE_CHECK_VERIFY = 0x002D4800;
     const uint IOCTL_STORAGE_EJECT_MEDIA = 0x002D4808;
     const uint IOCTL_CDROM_SET_SPEED = 0x00024060;
+    const uint IOCTL_CDROM_READ_TOC_EX = 0x00024054;
     const uint THREAD_TERMINATE = 0x0001;
     const int ERROR_OPERATION_ABORTED = 995;
 
@@ -345,6 +419,9 @@ public sealed class DeviceSource : ISectorSource
 
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool DeviceIoControl(SafeFileHandle h, uint code, ref CDROM_SET_SPEED inBuf, int inSize, IntPtr outBuf, int outSize, out int returned, IntPtr overlapped);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool DeviceIoControl(SafeFileHandle h, uint code, byte[] inBuf, int inSize, byte[] outBuf, int outSize, out int returned, IntPtr overlapped);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool SetFilePointerEx(SafeFileHandle h, long distance, out long newPos, uint method);
@@ -370,12 +447,15 @@ public sealed class DeviceSource : ISectorSource
     long readStart;            // okuma başlangıcı (Stopwatch zaman damgası), 0 = boşta
     volatile bool timedOut, disposed;
 
-    /// <summary>Kopyalanacak boyut: dosya sistemi boyutu biliniyorsa o, yoksa sürücünün bildirdiği.</summary>
+    /// <summary>Kopyalanacak boyut: veri izlerinin dosya sistemi sonu; bilinmiyorsa sürücünün bildirdiği.</summary>
     public long Size { get; }
     /// <summary>Sürücünün bildirdiği boyut (yazılabilir disklerde okunamayan kuyruk sektörlerini içerebilir).</summary>
     public long DeviceLength { get; }
-    /// <summary>ISO9660/UDF dosya sisteminin bildirdiği boyut; bulunamazsa 0.</summary>
-    public long FileSystemSize { get; }
+    public long TailLength { get; }
+    public IReadOnlyList<(long Start, long End)> Gaps { get; }
+    public long LastSessionStart { get; }
+    /// <summary>Günlüğe yazılacak disk düzeni özeti (izler, oturumlar, okunacak aralıklar).</summary>
+    public string Description { get; }
 
     /// <summary>Okuma yapacak iş parçacığında oluşturulmalıdır.</summary>
     public DeviceSource(char drive, int timeoutSeconds, CancellationToken ct)
@@ -397,12 +477,43 @@ public sealed class DeviceSource : ISectorSource
 
         DeviceLength = DeviceIoControl(dev, IOCTL_DISK_GET_LENGTH_INFO, IntPtr.Zero, 0, out long len, sizeof(long), out _, IntPtr.Zero)
             ? len / DiscCopier.SectorSize * DiscCopier.SectorSize : 0;
-        FileSystemSize = DiscLayout.ReadFileSystemSize((sector, buf) => Read(sector * DiscCopier.SectorSize, buf, 0, DiscCopier.SectorSize) == ReadStatus.Ok);
-        Size = DiscLayout.ChooseSize(DeviceLength, FileSystemSize);
-        TailLength = Math.Max(0, DeviceLength - Size);
+        var plan = DiscLayout.Plan(ReadToc(), DeviceLength,
+            (sector, buf) => Read(sector * DiscCopier.SectorSize, buf, 0, DiscCopier.SectorSize) == ReadStatus.Ok);
+        Size = plan.Size;
+        TailLength = plan.TailLength;
+        Gaps = plan.Gaps;
+        LastSessionStart = plan.LastSessionStart;
+        Description = plan.Description;
     }
 
-    public long TailLength { get; }
+    /// <summary>İçindekiler tablosu (TOC), adresler LBA olarak; desteklenmiyorsa null.</summary>
+    List<DiscLayout.TocTrack>? ReadToc()
+    {
+        // CDROM_READ_TOC_EX: Format=0 (TOC), Msf=0 (LBA), başlangıç izi 1
+        var input = new byte[] { 0, 1, 0, 0 };
+        var toc = new byte[4 + 100 * 8 + 16];
+        if (!DeviceIoControl(dev, IOCTL_CDROM_READ_TOC_EX, input, input.Length, toc, toc.Length, out int got, IntPtr.Zero) || got < 12)
+            return null;
+
+        int length = (toc[0] << 8) | toc[1];               // uzunluk alanı kendisini (2 bayt) saymaz
+        int entries = Math.Min((Math.Min(length + 2, got) - 4) / 8, 100);
+        var tracks = new List<DiscLayout.TocTrack>();
+        for (int i = 0; i < entries; i++)
+        {
+            int o = 4 + i * 8;
+            int control = toc[o + 1] & 0x0F;                 // alt dört bit: kontrol; 0x04 = veri izi
+            int number = toc[o + 2];
+            long lba = ((long)toc[o + 4] << 24) | ((long)toc[o + 5] << 16) | ((long)toc[o + 6] << 8) | toc[o + 7];
+            tracks.Add(new DiscLayout.TocTrack(number, (control & 0x04) != 0, lba));
+        }
+
+        // Tutarsız TOC'a güvenme (adresler sıralı olmalı, disk boyutunu aşmamalı); yoksa eski yönteme dön
+        long maxSector = DeviceLength > 0 ? DeviceLength / DiscCopier.SectorSize + 1 : long.MaxValue;
+        for (int i = 0; i < tracks.Count; i++)
+            if (tracks[i].Start < 0 || tracks[i].Start > maxSector || (i > 0 && tracks[i].Start < tracks[i - 1].Start))
+                return null;
+        return tracks.Count > 0 && tracks[^1].Number == DiscLayout.LeadOut ? tracks : null;
+    }
 
     public char Drive { get; }
 

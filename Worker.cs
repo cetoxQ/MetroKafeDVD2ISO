@@ -14,7 +14,6 @@ public sealed class WorkerMessage
     public string? Label { get; set; }
     public string? FileSystem { get; set; }
     public long DeviceLength { get; set; }
-    public long FileSystemSize { get; set; }
     public long Size { get; set; }
 
     // progress / result
@@ -91,7 +90,7 @@ public static class Worker
             Label = label,
             FileSystem = fs,
             DeviceLength = dev.DeviceLength,
-            FileSystemSize = dev.FileSystemSize,
+            Message = dev.Description,
             Size = dev.Size,
         };
     }
@@ -127,18 +126,14 @@ public static class Worker
         {
             int timeout = opt.SkipBadSectors ? opt.StallTimeoutSeconds : 0;
             using var dev = new DeviceSource(drive, timeout, cts.Token);
+            send(new WorkerMessage { Type = "info", Message = dev.Description });
             if (dev.TailLength > 0)
                 send(new WorkerMessage
                 {
                     Type = "info",
-                    Message = $"Disk boyutu dosya sisteminden alındı: {dev.Size / DiscCopier.SectorSize:N0} sektör. " +
-                              $"Sürücü {dev.DeviceLength / DiscCopier.SectorSize:N0} sektör bildiriyor; sondaki " +
+                    Message = $"Dosya sistemi {dev.Size / DiscCopier.SectorSize:N0}. sektörde bitiyor; ardındaki " +
                               $"{dev.TailLength / DiscCopier.SectorSize:N0} sektör en sonda denenecek, okunamazsa hata sayılmayacak.",
                 });
-            else if (dev.FileSystemSize > 0 && dev.DeviceLength - dev.FileSystemSize > DiscLayout.MaxTail)
-                send(new WorkerMessage { Type = "info", Message = "Dosya sistemi diskin tamamını kapsamıyor (çok oturumlu disk olabilir); diskin tamamı okunuyor." });
-            else if (dev.FileSystemSize == 0)
-                send(new WorkerMessage { Type = "info", Message = "Dosya sistemi tanınmadı; sürücünün bildirdiği boyut kullanılıyor." });
 
             var r = new DiscCopier(dev, opt, progress, cts.Token).Run(output);
             send(new WorkerMessage
