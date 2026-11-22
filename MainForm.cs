@@ -35,6 +35,7 @@ public sealed class MainForm : Form
 
     // Başlık çubuğu
     readonly FlatButton tabCopy = new() { Text = "Kopyala", Style = FlatButton.Kind.Tab, Selected = true, Dock = DockStyle.Fill };
+    readonly FlatButton tabMp4 = new() { Text = "MP4'e Dönüştür", Style = FlatButton.Kind.Tab, Dock = DockStyle.Fill };
     readonly FlatButton tabSettings = new() { Text = "Ayarlar", Style = FlatButton.Kind.Tab, Dock = DockStyle.Fill };
     readonly FlatButton tabUpdates = new() { Text = "Güncellemeler", Style = FlatButton.Kind.Tab, Dock = DockStyle.Fill };
     readonly FlatButton updateChip = new() { Text = "● Yeni sürüm", Style = FlatButton.Kind.Chip, Selected = true, Padding = new Padding(10, 3, 10, 3), Anchor = AnchorStyles.Left, Visible = false };
@@ -78,6 +79,9 @@ public sealed class MainForm : Form
     readonly CheckBox chkVerify = DarkCheck("ISO'yu diskle karşılaştırarak doğrula ve SHA-256 hesapla");
     readonly CheckBox chkEject = DarkCheck("Diski çıkar");
     readonly CheckBox chkOpenFolder = DarkCheck("ISO'nun bulunduğu klasörü aç");
+    readonly CheckBox chkAutoMp4 = DarkCheck("ISO'yu MP4'e de dönüştür (MP4'e Dönüştür sekmesindeki ayarlarla)");
+    readonly Mp4Panel mp4Panel;
+    bool mp4EncodersLoaded;
     static readonly int[] TimeoutChoices = [5, 10, 15, 30, 60];
     readonly DropDown cmbMethod = new() { PreferredWidth = 260, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 0, 4) };
     static readonly (CopyMethod Method, string Text)[] MethodChoices =
@@ -139,11 +143,13 @@ public sealed class MainForm : Form
         DoubleBuffered = true;
         try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
+        mp4Panel = new Mp4Panel(settings);
         var content = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg };
         BuildCopyPage();
         BuildSettingsPage();
         BuildUpdatesPage();
         content.Controls.Add(pageCopy);
+        content.Controls.Add(mp4Panel);
         content.Controls.Add(pageSettings);
         content.Controls.Add(pageUpdates);
         Controls.Add(content);
@@ -168,6 +174,19 @@ public sealed class MainForm : Form
         };
         statsTimer.Tick += (_, _) => UpdateStats();
         tabCopy.Click += (_, _) => ShowPage(pageCopy);
+        tabMp4.Click += async (_, _) =>
+        {
+            ShowPage(mp4Panel);
+            if (!mp4EncodersLoaded) { mp4EncodersLoaded = true; await mp4Panel.LoadEncodersAsync(); }
+#if DEBUG
+            // Test: MK_TEST_MP4="a.iso;b.iso" ile listeyi doldur
+            if (Environment.GetEnvironmentVariable("MK_TEST_MP4") is { Length: > 0 } files)
+            {
+                Environment.SetEnvironmentVariable("MK_TEST_MP4", null);
+                foreach (var f in files.Split(';')) mp4Panel.Enqueue(f, false);
+            }
+#endif
+        };
         tabSettings.Click += (_, _) => ShowPage(pageSettings);
         tabUpdates.Click += (_, _) => ShowPage(pageUpdates);
         updateChip.Click += (_, _) => ShowPage(pageUpdates);
@@ -229,8 +248,8 @@ public sealed class MainForm : Form
     Control BuildTitleBar()
     {
         int h = 44;
-        var bar = new TableLayoutPanel { Dock = DockStyle.Top, Height = h, BackColor = Theme.TitleBar, ColumnCount = 9, RowCount = 1, Margin = new Padding(0) };
-        for (int i = 0; i < 6; i++) bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        var bar = new TableLayoutPanel { Dock = DockStyle.Top, Height = h, BackColor = Theme.TitleBar, ColumnCount = 10, RowCount = 1, Margin = new Padding(0) };
+        for (int i = 0; i < 7; i++) bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 46));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 46));
@@ -242,7 +261,7 @@ public sealed class MainForm : Form
         var filler = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0) };
         var min = new TitleButton(TitleButton.Glyph.Minimize);
         var close = new TitleButton(TitleButton.Glyph.Close);
-        tabCopy.Padding = tabSettings.Padding = tabUpdates.Padding = new Padding(14, 0, 14, 0);
+        tabCopy.Padding = tabMp4.Padding = tabSettings.Padding = tabUpdates.Padding = new Padding(14, 0, 14, 0);
         updateChip.Margin = new Padding(10, 0, 0, 0);
         min.Click += (_, _) => WindowState = FormWindowState.Minimized;
         close.Click += (_, _) => Close();
@@ -250,19 +269,20 @@ public sealed class MainForm : Form
         bar.Controls.Add(logo, 0, 0);
         bar.Controls.Add(title, 1, 0);
         bar.Controls.Add(tabCopy, 2, 0);
-        bar.Controls.Add(tabSettings, 3, 0);
-        bar.Controls.Add(tabUpdates, 4, 0);
-        bar.Controls.Add(updateChip, 5, 0);
-        bar.Controls.Add(filler, 6, 0);
-        bar.Controls.Add(min, 7, 0);
-        bar.Controls.Add(close, 8, 0);
+        bar.Controls.Add(tabMp4, 3, 0);
+        bar.Controls.Add(tabSettings, 4, 0);
+        bar.Controls.Add(tabUpdates, 5, 0);
+        bar.Controls.Add(updateChip, 6, 0);
+        bar.Controls.Add(filler, 7, 0);
+        bar.Controls.Add(min, 8, 0);
+        bar.Controls.Add(close, 9, 0);
         foreach (Control c in new Control[] { bar, logo, title, filler }) c.MouseDown += DragWindow;
         return bar;
     }
 
     void ShowPage(Panel page)
     {
-        foreach (var (p, tab) in new[] { (pageCopy, tabCopy), (pageSettings, tabSettings), (pageUpdates, tabUpdates) })
+        foreach (var (p, tab) in new (Panel, FlatButton)[] { (pageCopy, tabCopy), (mp4Panel, tabMp4), (pageSettings, tabSettings), (pageUpdates, tabUpdates) })
         {
             p.Visible = p == page;
             tab.Selected = p == page;
@@ -271,7 +291,7 @@ public sealed class MainForm : Form
 
     // ───────────────────────── Sayfa düzenleri ─────────────────────────
 
-    static CheckBox DarkCheck(string text) => new()
+    internal static CheckBox DarkCheck(string text) => new()
     {
         Text = text,
         AutoSize = true,
@@ -282,7 +302,7 @@ public sealed class MainForm : Form
         Cursor = Cursors.Hand,
     };
 
-    static Label Section(string text) => new()
+    internal static Label Section(string text) => new()
     {
         Text = text,
         AutoSize = true,
@@ -291,7 +311,7 @@ public sealed class MainForm : Form
         Margin = new Padding(0, 10, 0, 6),
     };
 
-    static Label FieldLabel(string text) => new()
+    internal static Label FieldLabel(string text) => new()
     {
         Text = text,
         AutoSize = true,
@@ -299,7 +319,7 @@ public sealed class MainForm : Form
         Margin = new Padding(2, 8, 0, 4),
     };
 
-    static TableLayoutPanel Row(Control field, Control? button)
+    internal static TableLayoutPanel Row(Control field, Control? button)
     {
         var row = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 2, Margin = new Padding(0) };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -391,7 +411,7 @@ public sealed class MainForm : Form
         pageCopy.Controls.Add(root);
     }
 
-    static Label Hint(string text) => new()
+    internal static Label Hint(string text) => new()
     {
         Text = text,
         AutoSize = true,
@@ -433,13 +453,15 @@ public sealed class MainForm : Form
         Add(Hint("Disk ikinci kez okunur; süre yaklaşık iki katına çıkar. Özet, ISO'nun yanına .sha256 dosyası olarak kaydedilir."));
         Add(chkEject);
         Add(chkOpenFolder);
+        Add(chkAutoMp4);
+        Add(Hint("Kopyalama bitince ISO, MP4'e Dönüştür sekmesindeki sıraya eklenir ve dönüştürme kendiliğinden başlar."));
 
         root.Controls.Add(new Panel { Dock = DockStyle.Fill });
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         pageSettings.Controls.Add(root);
 
         cmbTimeout.SetItems(TimeoutChoices.Select(t => (object)$"{t} sn"));
-        foreach (var c in new[] { chkSkipBad, chkTimeout, chkTwoPass, chkSlowDown, chkVerify, chkEject, chkOpenFolder, chkAutoUpdate })
+        foreach (var c in new[] { chkSkipBad, chkTimeout, chkTwoPass, chkSlowDown, chkVerify, chkEject, chkOpenFolder, chkAutoUpdate, chkAutoMp4 })
             c.CheckedChanged += (_, _) => SaveSettings();
         cmbTimeout.SelectedIndexChanged += (_, _) => SaveSettings();
         cmbMethod.SetItems(MethodChoices.Select(m => (object)m.Text));
@@ -459,6 +481,7 @@ public sealed class MainForm : Form
         chkEject.Checked = settings.EjectWhenDone;
         chkOpenFolder.Checked = settings.OpenFolderWhenDone;
         chkAutoUpdate.Checked = settings.AutoCheckUpdates;
+        chkAutoMp4.Checked = settings.AutoMp4AfterIso;
         cmbMethod.SelectedIndex = Math.Max(0, Array.FindIndex(MethodChoices, m => m.Method == settings.CopyMethod));
         loadingSettings = false;
         ApplySettingsUi();
@@ -476,6 +499,7 @@ public sealed class MainForm : Form
         settings.EjectWhenDone = chkEject.Checked;
         settings.OpenFolderWhenDone = chkOpenFolder.Checked;
         settings.AutoCheckUpdates = chkAutoUpdate.Checked;
+        settings.AutoMp4AfterIso = chkAutoMp4.Checked;
         if (cmbMethod.SelectedIndex >= 0) settings.CopyMethod = MethodChoices[cmbMethod.SelectedIndex].Method;
         settings.Save();
         ApplySettingsUi();
@@ -498,6 +522,7 @@ public sealed class MainForm : Form
         if (settings.SlowDownOnErrors) parts.Add("yavaşlatma");
         if (settings.Verify) parts.Add("doğrulama");
         if (settings.EjectWhenDone) parts.Add("diski çıkar");
+        if (settings.AutoMp4AfterIso) parts.Add("ardından MP4");
         if (settings.CopyMethod == CopyMethod.Sectors) parts.Insert(0, "yalnız sektör sektör");
         if (settings.CopyMethod == CopyMethod.Files) parts.Insert(0, "dosya tabanlı");
         if (cmbDrive.SelectedItem is DriveItem { State: DriveState.Ready }) UpdateDriveInfo();
@@ -953,6 +978,11 @@ public sealed class MainForm : Form
                                       (verifyProblem != null ? verifyProblem + "\n\n" : "") +
                                       "İpucu: Diski yumuşak bir bezle merkezden dışa doğru silip tekrar deneyebilirsiniz.",
                     AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            if (settings.AutoMp4AfterIso)
+            {
+                mp4Panel.Enqueue(output, autoStart: true);
+                Log("MP4'e dönüştürme sırasına eklendi (MP4'e Dönüştür sekmesi).");
+            }
             if (settings.OpenFolderWhenDone)
                 Process.Start("explorer.exe", $"/select,\"{output}\"");
         }
@@ -1204,6 +1234,17 @@ public sealed class MainForm : Form
 
     void OnFormClosing(object? sender, FormClosingEventArgs e)
     {
+        if (mp4Panel.IsBusy && cts == null)
+        {
+            if (MessageBox.Show(this, "MP4 dönüştürme devam ediyor. Durdurup çıkılsın mı?", AppName,
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            {
+                e.Cancel = true;
+                return;
+            }
+            mp4Panel.CancelAll();
+            return;
+        }
         if (cts == null) return;
         if (MessageBox.Show(this, "ISO oluşturma devam ediyor. İptal edip çıkılsın mı?", AppName,
                 MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
@@ -1211,6 +1252,7 @@ public sealed class MainForm : Form
             e.Cancel = true;
             return;
         }
+        mp4Panel.CancelAll();
         cts.Cancel();
     }
 
@@ -1257,7 +1299,7 @@ public sealed class MainForm : Form
         return s.Trim().Length == 0 ? "disk" : s.Trim();
     }
 
-    static string FormatSize(long bytes)
+    internal static string FormatSize(long bytes)
     {
         string[] units = ["B", "KB", "MB", "GB", "TB"];
         double v = bytes; int u = 0;

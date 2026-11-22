@@ -53,6 +53,14 @@ public sealed class AppSettings
     public string NamePreset { get; set; } = "Label";
     public CopyMethod CopyMethod { get; set; } = CopyMethod.Auto;
 
+    // MP4 dönüştürme
+    public int Mp4VideoKbps { get; set; } = 2500;
+    public string Mp4Encoder { get; set; } = "x264";
+    public bool Mp4Deinterlace { get; set; } = true;
+    public bool Mp4NextToIso { get; set; } = true;
+    public string Mp4Folder { get; set; } = "";
+    public bool AutoMp4AfterIso { get; set; }
+
     public static AppSettings Load()
     {
         try

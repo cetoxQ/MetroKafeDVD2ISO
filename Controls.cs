@@ -220,8 +220,10 @@ sealed class FieldBox : Panel
         Controls.Add(inner);
     }
 
+    public int PreferredWidth { get; set; } = 200;
+
     public override Size GetPreferredSize(Size proposedSize) =>
-        new(200, TextRenderer.MeasureText("Ag", Font).Height + Padding.Vertical);
+        new(PreferredWidth, TextRenderer.MeasureText("Ag", Font).Height + Padding.Vertical);
 
     protected override void OnPaint(PaintEventArgs e)
     {

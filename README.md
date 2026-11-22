@@ -21,6 +21,9 @@ DVD ve CD'lerden ISO kalıbı oluşturan, sade ve modern bir Windows uygulaması
 - Ayarlar sekmesi (seçenekler kalıcı)
 - Güncellemeler sayfası, açılışta otomatik denetim ve tek tıkla güncelleme (GitHub Releases)
 
+## MP4'e dönüştürme
+"MP4'e Dönüştür" sekmesi ISO'ları [HandBrake](https://handbrake.fr) komut satırı aracıyla MP4'e çevirir: çözünürlük ve kare hızı kaynakla aynı kalır, yalnız ortalama bit hızı seçilir (yanında tahmini boyut görünür). Toplu dönüştürme, ekran kartıyla kodlama ve taramalı görüntü düzeltme desteklenir. HandBrakeCLI (GPL) programa gömülü değildir; ilk kullanımda izin istenip resmi GitHub sürümlerinden indirilir.
+
 ## Kullanım
 1. Diski takın, uygulamayı açın.
 2. Sürücüyü, kayıt konumunu ve dosya adını seçin.

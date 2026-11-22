@@ -1,5 +1,17 @@
 # Sürüm notları
 
+## v1.5.0 — 2026-11-23
+- Yeni "MP4'e Dönüştür" sekmesi: ISO'lar HandBrakeCLI ile MP4'e (H.264 + AAC) dönüştürülüyor
+- Çözünürlük ve kare hızı kaynakla aynı kalıyor (kırpma/ölçekleme yok, sabit kare hızı, DVD en-boy oranı korunuyor)
+- Ortalama bit hızı ayarı ve hazır değerler; yanında tahmini çıktı boyutu
+- Çok geçişli kodlama ve turbo analiz kapalı
+- Kodlayıcı seçimi: işlemci (x264) veya bilgisayarda varsa NVIDIA / Intel / AMD ekran kartı
+- Taramalı görüntü düzeltme (Decomb) açık/kapalı, açıklamalarıyla
+- Toplu dönüştürme: birden fazla ISO veya bir klasördeki tüm ISO'lar sırayla; sürükle-bırak
+- DVD'de birden fazla video başlığı varsa ana başlık + diğerleri ayrı MP4 olarak; "hepsini oynat" ve kopya başlıklar atlanıyor
+- Ayarlar: "ISO'yu MP4'e de dönüştür" — kopyalama bitince dönüştürme kendiliğinden başlıyor
+- HandBrakeCLI ilk kullanımda izinle resmi GitHub sayfasından indirilip programın klasöründeki tools\ altına kaydediliyor
+
 ## v1.4.2 — 2026-11-23
 - Kopyalama başlayınca kaynak/hedef alanı tek satırlık özete iniyor; günlük ekranı çok daha geniş
 - Durum alanı kopyalama boyunca sabit yerde ve sabit yükseklikte: sorun yokken "Okuma normal", sorun olunca sarı uyarı; ekran artık zıplamıyor
