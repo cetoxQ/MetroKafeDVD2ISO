@@ -1,5 +1,12 @@
 # Sürüm notları
 
+## v1.4.0 — 2026-11-23
+- Video CD / Super Video CD desteği: görüntü sektörleri (Mode 2 Form 2) ISO'ya sektör sektör sığmadığı için bu disklerde ISO, diskteki dosyalardan oluşturuluyor (eski DVD2ISO gibi); artık "hasarlı bölge" hatası vermiyor
+- Ayarlara "Kopyalama yöntemi" eklendi: Otomatik / Sektör sektör / Dosya tabanlı
+- Sürücü bilgisinde disk türü "Video CD" olarak gösteriliyor
+- Aynı oturumdaki ikinci veri izi artık yanlışlıkla "çok oturumlu disk" sayılmıyor
+- UDF disklerin sonundaki çapa sektörleri her yerleşimde doğru hesaplanıyor (bazı disklerin sondan eksik kopyalanması önlendi)
+
 ## v1.3.1 — 2026-11-23
 - Diskin iz/oturum düzeni (TOC) okunuyor; yalnız veri izleri kopyalanıyor
 - Çok oturumlu disklerde oturum aralarındaki hiç okunamayan boşluklar okunmadan sıfırla dolduruluyor ve hasarlı sayılmıyor; ISO açıldığında son eklenen dosyalar da görünüyor

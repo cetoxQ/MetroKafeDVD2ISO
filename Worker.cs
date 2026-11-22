@@ -14,6 +14,7 @@ public sealed class WorkerMessage
     public string? Label { get; set; }
     public string? FileSystem { get; set; }
     public long DeviceLength { get; set; }
+    public string? MediaKind { get; set; }        // "Video CD", "Super Video CD" veya null
     public long Size { get; set; }
 
     // progress / result
@@ -87,6 +88,7 @@ public static class Worker
         {
             Type = "probe",
             Ready = true,
+            MediaKind = FileIsoBuilder.DetectVideoCd($"{drive}:\\"),
             Label = label,
             FileSystem = fs,
             DeviceLength = dev.DeviceLength,
@@ -124,6 +126,27 @@ public static class Worker
 
         try
         {
+            string root = $"{drive}:\\";
+            string? videoCd = FileIsoBuilder.DetectVideoCd(root);
+            if (opt.Method == CopyMethod.Files || (opt.Method == CopyMethod.Auto && videoCd != null))
+            {
+                send(new WorkerMessage
+                {
+                    Type = "info",
+                    Message = videoCd != null
+                        ? $"{videoCd} algılandı. Görüntü, ISO sektörlerine sığmayan özel sektörlerde (Mode 2 Form 2) durduğu için " +
+                          "sektör sektör kopyalanamaz; ISO diskteki dosyalardan oluşturuluyor."
+                        : "Dosya tabanlı yöntem: ISO diskteki dosyalardan oluşturuluyor.",
+                });
+                if (opt.Verify)
+                    send(new WorkerMessage { Type = "info", Message = "Dosya tabanlı yöntemde diskle sektör karşılaştırması yapılamaz; yalnız SHA-256 hesaplanacak." });
+                string label = "";
+                try { label = new DriveInfo(drive.ToString()).VolumeLabel; } catch { }
+                var fr = FileIsoBuilder.Build(root, label, output, opt.Verify, progress, cts.Token);
+                send(new WorkerMessage { Type = "result", Done = fr.BytesWritten, ElapsedMs = (long)fr.Elapsed.TotalMilliseconds, Sha256 = fr.Sha256 });
+                return 0;
+            }
+
             int timeout = opt.SkipBadSectors ? opt.StallTimeoutSeconds : 0;
             using var dev = new DeviceSource(drive, timeout, cts.Token);
             send(new WorkerMessage { Type = "info", Message = dev.Description });

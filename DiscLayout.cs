@@ -37,29 +37,35 @@ public static class DiscLayout
         {
             uint vdsLength = BitConverter.ToUInt32(buf, 16), vdsLocation = BitConverter.ToUInt32(buf, 20);
             uint reserveLength = BitConverter.ToUInt32(buf, 24), reserveLocation = BitConverter.ToUInt32(buf, 28);
-            long end = reserveLocation + reserveLength / Sector; // yedek tanımlayıcı dizisi genelde bölümden sonra gelir
+            long reserveEnd = reserveLocation + reserveLength / Sector; // yedek tanımlayıcı dizisi
+            long partitionEnd = 0;
 
             long count = Math.Min(64, vdsLength / Sector);
             for (long i = 0; i < count && readSector(vdsLocation + i, buf); i++)
             {
                 ushort tag = BitConverter.ToUInt16(buf, 0);
-                if (tag == 5) end = Math.Max(end, (long)BitConverter.ToUInt32(buf, 188) + BitConverter.ToUInt32(buf, 192));
+                if (tag == 5) partitionEnd = Math.Max(partitionEnd, (long)BitConverter.ToUInt32(buf, 188) + BitConverter.ToUInt32(buf, 192));
                 if (tag == 8) break; // sonlandırıcı
             }
 
             // UDF, son sektör (N) ve N-256'ya da çapa koyar; bunlar ISO9660 boyutunun dışında kalabilir.
-            // Bilinen yapıların hemen ardında N-256 çapasını ara; 256 sektör ilerideki son çapa diskin sonudur.
-            // (Bazı yazıcılar art arda birkaç çapa koyar, bu yüzden küçük bir aralık taranır.)
-            end = Math.Max(end, iso / Sector);
-            for (long s = end; s < end + 64; s++)
+            // Veri/bölüm sonunun hemen ardında N-256 çapasını ara (yedek tanımlayıcı alanıyla çakışabilir);
+            // 256 sektör ilerideki son çapa diskin sonudur. Bazı yazıcılar art arda birkaç çapa koyar.
+            long scanFrom = Math.Max(iso / Sector, partitionEnd);
+            long end = Math.Max(scanFrom, reserveEnd);
+            for (long s = scanFrom; s < scanFrom + 64; s++)
             {
                 if (!readSector(s, buf)) break;
                 if (!IsAnchorAt(s)) continue;
-                end = s + 1;
-                for (long t = s + 256; t < s + 256 + 16; t++)
+                end = Math.Max(end, s + 1);
+                // Bazı yazıcılar (ör. Windows IMAPI) sonu kesintisiz bir çapa dizisiyle doldurur: dizinin sonuna kadar izle
+                for (long t = s + 1; t < s + MaxTail / Sector && readSector(t, buf) && IsAnchorAt(t); t++)
+                    end = t + 1;
+                // Standart yerleşim: N-256'daki çapanın 256 sektör ilerisinde son çapa (N)
+                for (long t = Math.Max(end, s + 256); t < s + 256 + 16; t++)
                 {
                     if (!readSector(t, buf)) break;
-                    if (IsAnchorAt(t)) end = t + 1;
+                    if (IsAnchorAt(t)) end = Math.Max(end, t + 1);
                 }
                 break;
             }
@@ -124,6 +130,7 @@ public static class DiscLayout
         long leadOut = Math.Min(toc!.FirstOrDefault(t => t.Number == LeadOut)?.Start ?? deviceSectors, deviceSectors);
 
         var ranges = new List<(long Start, long End, long TrackEnd)>();
+        long lastSession = 0;
         for (int i = 0; i < tracks.Count; i++)
         {
             if (!tracks[i].IsData) continue;
@@ -131,8 +138,10 @@ public static class DiscLayout
             long trackEnd = Math.Min(i + 1 < tracks.Count ? tracks[i + 1].Start : leadOut, leadOut);
             if (trackEnd <= start) continue;
             long fsEnd = ReadFileSystemSize(readSector, start) / Sector;
-            long end = fsEnd > start && fsEnd <= trackEnd ? fsEnd : trackEnd;
-            ranges.Add((start, end, trackEnd));
+            bool ownFileSystem = fsEnd > start && fsEnd <= trackEnd;
+            // Kendi dosya sistemi olan sonraki iz yeni bir oturumdur; yoksa aynı oturumun bir izidir (ör. Video CD görüntü izi)
+            if (ownFileSystem && start > 0) lastSession = start;
+            ranges.Add((start, ownFileSystem ? fsEnd : trackEnd, trackEnd));
         }
         if (ranges.Count == 0)
             return new DiscPlan(deviceLength, 0, [], 0, "Disk düzeni: veri izleri okunamadı; sürücünün bildirdiği boyut kullanılıyor.");
@@ -154,16 +163,15 @@ public static class DiscLayout
             cursor = Math.Max(cursor, r.End);
         }
 
-        long lastSession = ranges.Count > 1 ? ranges[^1].Start : 0;
         int audio = tracks.Count(t => !t.IsData);
         var sb = new System.Text.StringBuilder();
         sb.Append($"Disk düzeni: {tracks.Count} iz (");
         sb.Append(string.Join(", ", tracks.Select(t => $"{t.Number}: {(t.IsData ? "veri" : "ses")} @{t.Start:N0}")));
         sb.Append($"), kapanış @{leadOut:N0}. Okunacak: ");
         sb.Append(string.Join(", ", ranges.Select(r => $"{r.Start:N0}–{r.End - 1:N0}")));
-        if (gaps.Count > 0) sb.Append($"; {gaps.Sum(g => g.Item2 - g.Item1) / Sector:N0} sektörlük okunamaz boşluk sıfırla doldurulacak");
+        if (gaps.Count > 0) sb.Append($"; izler/oturumlar arasındaki {gaps.Sum(g => g.Item2 - g.Item1) / Sector:N0} sektörlük okunamaz boşluk sıfırla doldurulacak");
         if (audio > 0) sb.Append($"; {audio} ses izi ISO'ya alınmaz");
-        if (ranges.Count > 1) sb.Append("; çok oturumlu disk, ISO son oturumun dosyalarını gösterecek");
+        if (lastSession > 0) sb.Append("; çok oturumlu disk, ISO son oturumun dosyalarını gösterecek");
         sb.Append('.');
 
         return new DiscPlan(ranges[^1].End * Sector, tail * Sector, gaps, lastSession, sb.ToString());

@@ -77,6 +77,13 @@ public sealed class MainForm : Form
     readonly CheckBox chkEject = DarkCheck("Diski çıkar");
     readonly CheckBox chkOpenFolder = DarkCheck("ISO'nun bulunduğu klasörü aç");
     static readonly int[] TimeoutChoices = [5, 10, 15, 30, 60];
+    readonly DropDown cmbMethod = new() { PreferredWidth = 260, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 0, 4) };
+    static readonly (CopyMethod Method, string Text)[] MethodChoices =
+    [
+        (CopyMethod.Auto, "Otomatik (önerilen)"),
+        (CopyMethod.Sectors, "Sektör sektör (birebir kopya)"),
+        (CopyMethod.Files, "Dosya tabanlı (diskteki dosyalardan)"),
+    ];
 
     // Güncellemeler sayfası
     readonly Panel pageUpdates = new() { Dock = DockStyle.Fill, Padding = new Padding(22, 16, 22, 18), Visible = false };
@@ -383,10 +390,16 @@ public sealed class MainForm : Form
 
     void BuildSettingsPage()
     {
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, AutoScroll = true };
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1 };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         void Add(Control c) { root.Controls.Add(c); root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); }
         Control Indent(Control c) { c.Margin = new Padding(c.Margin.Left + 22, c.Margin.Top, 0, c.Margin.Bottom); return c; }
+
+        Add(Section("KOPYALAMA YÖNTEMİ"));
+        Add(cmbMethod);
+        Add(Hint("Sektör sektör: diskin birebir kopyası; doğrulama ve hasarlı disk kurtarma bu yöntemde çalışır.\n" +
+                 "Dosya tabanlı: ISO diskteki dosyalardan kurulur (eski DVD2ISO gibi). Video CD'ler yalnız bu yöntemle kopyalanabilir.\n" +
+                 "Otomatik: Video CD / Super Video CD'de dosya tabanlı, diğer disklerde sektör sektör."));
 
         Add(Section("ÇİZİK / HASARLI DİSKLER"));
         Add(chkSkipBad);
@@ -418,6 +431,8 @@ public sealed class MainForm : Form
         foreach (var c in new[] { chkSkipBad, chkTimeout, chkTwoPass, chkSlowDown, chkVerify, chkEject, chkOpenFolder, chkAutoUpdate })
             c.CheckedChanged += (_, _) => SaveSettings();
         cmbTimeout.SelectedIndexChanged += (_, _) => SaveSettings();
+        cmbMethod.SetItems(MethodChoices.Select(m => (object)m.Text));
+        cmbMethod.SelectedIndexChanged += (_, _) => SaveSettings();
     }
 
     void LoadSettings()
@@ -433,6 +448,7 @@ public sealed class MainForm : Form
         chkEject.Checked = settings.EjectWhenDone;
         chkOpenFolder.Checked = settings.OpenFolderWhenDone;
         chkAutoUpdate.Checked = settings.AutoCheckUpdates;
+        cmbMethod.SelectedIndex = Math.Max(0, Array.FindIndex(MethodChoices, m => m.Method == settings.CopyMethod));
         loadingSettings = false;
         ApplySettingsUi();
     }
@@ -449,6 +465,7 @@ public sealed class MainForm : Form
         settings.EjectWhenDone = chkEject.Checked;
         settings.OpenFolderWhenDone = chkOpenFolder.Checked;
         settings.AutoCheckUpdates = chkAutoUpdate.Checked;
+        if (cmbMethod.SelectedIndex >= 0) settings.CopyMethod = MethodChoices[cmbMethod.SelectedIndex].Method;
         settings.Save();
         ApplySettingsUi();
     }
@@ -470,6 +487,9 @@ public sealed class MainForm : Form
         if (settings.SlowDownOnErrors) parts.Add("yavaşlatma");
         if (settings.Verify) parts.Add("doğrulama");
         if (settings.EjectWhenDone) parts.Add("diski çıkar");
+        if (settings.CopyMethod == CopyMethod.Sectors) parts.Insert(0, "yalnız sektör sektör");
+        if (settings.CopyMethod == CopyMethod.Files) parts.Insert(0, "dosya tabanlı");
+        if (cmbDrive.SelectedItem is DriveItem { State: DriveState.Ready }) UpdateDriveInfo();
         lblOptions.Text = "Seçenekler:  " + string.Join("  ·  ", parts);
     }
 
@@ -716,6 +736,9 @@ public sealed class MainForm : Form
         if (idx == cmbDrive.SelectedIndex) UpdateDriveInfo();
     }
 
+    bool UsesFileMethod(WorkerMessage info) =>
+        settings.CopyMethod == CopyMethod.Files || (settings.CopyMethod == CopyMethod.Auto && info.MediaKind != null);
+
     void UpdateDriveInfo()
     {
         if (cmbDrive.SelectedItem is not DriveItem item) return;
@@ -736,8 +759,12 @@ public sealed class MainForm : Form
                 break;
             default:
                 var info = item.Info!;
-                string kind = info.Size > 900L * 1024 * 1024 ? "DVD" : "CD";
+                string kind = info.MediaKind ?? (info.Size > 900L * 1024 * 1024 ? "DVD" : "CD");
                 lblInfo.Text = $"Etiket: {(item.Label.Length > 0 ? item.Label : "-")}     Tür: {kind}     Dosya sistemi: {info.FileSystem}     Boyut: {FormatSize(info.Size)}";
+                if (UsesFileMethod(info))
+                    lblInfo.Text += info.MediaKind != null
+                        ? $"\n{info.MediaKind}: ISO diskteki dosyalardan oluşturulacak (görüntü sektörleri ISO'ya sektör sektör sığmaz)."
+                        : "\nDosya tabanlı yöntem: ISO diskteki dosyalardan oluşturulacak.";
                 btnCreate.Enabled = cts == null;
                 break;
         }
@@ -824,6 +851,8 @@ public sealed class MainForm : Form
 
         long size = info.Size;
         if (size <= 0) { Warn("Disk boyutu okunamadı."); return; }
+        // Dosya tabanlı ISO'da Video CD görüntü dosyaları tam sektörlerle (2352 bayt) okunur; biraz daha büyük çıkar
+        if (UsesFileMethod(info)) size = size / 2048 * 2352 + 4 * 1024 * 1024;
 
         // Boş alan ve FAT32 4 GB sınırı kontrolü
         try
@@ -1001,6 +1030,7 @@ public sealed class MainForm : Form
         copyBad = p.BadSectors;
         if (p.TotalBytes > 0)
         {
+            copyTotal = p.TotalBytes;
             progress.Value = (int)(p.BytesDone * progress.Maximum / p.TotalBytes);
             double pct = p.BytesDone * 100.0 / p.TotalBytes;
             lblPercent.Text = $"%{pct:0.0}";

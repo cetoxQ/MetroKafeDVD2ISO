@@ -15,6 +15,7 @@ public sealed class AppSettings
     public bool OpenFolderWhenDone { get; set; } = true;
     public bool AutoCheckUpdates { get; set; } = true;
     public string NamePreset { get; set; } = "Label";
+    public CopyMethod CopyMethod { get; set; } = CopyMethod.Auto;
 
     static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MetroKafeDVD2ISO", "settings.json");
@@ -42,6 +43,7 @@ public sealed class AppSettings
 
     public CopyOptions ToCopyOptions() => new()
     {
+        Method = CopyMethod,
         SkipBadSectors = SkipBadSectors,
         StallTimeoutSeconds = StallTimeoutEnabled ? StallTimeoutSeconds : 0,
         TwoPass = TwoPass,

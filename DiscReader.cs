@@ -14,8 +14,12 @@ public sealed record CopyProgress(CopyPhase Phase, long BytesDone, long TotalByt
 public sealed record CopyResult(long BytesWritten, int BadSectors, TimeSpan Elapsed,
     string? Sha256 = null, int VerifyMismatches = 0, int VerifyUnreadable = 0);
 
+public enum CopyMethod { Auto, Sectors, Files }
+
 public sealed class CopyOptions
 {
+    /// <summary>Otomatik: Video CD'lerde dosya tabanlı, diğerlerinde sektör sektör.</summary>
+    public CopyMethod Method { get; init; } = CopyMethod.Auto;
     public bool SkipBadSectors { get; init; } = true;
     /// <summary>Bir okuma bu süreden uzun sürerse kesilip atlanır (0 = kapalı).</summary>
     public int StallTimeoutSeconds { get; init; } = 15;
