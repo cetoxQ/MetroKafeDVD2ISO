@@ -7,6 +7,8 @@ sealed class Mp4Item(string path)
 {
     public string Path { get; } = path;
     public List<HbTitle> Titles { get; set; } = [];
+    /// <summary>Video CD ISO'sunda Titles ile aynı sırada çıkarılacak video dosyaları; DVD'de null.</summary>
+    public List<VcdStream>? VcdStreams { get; set; }
     public string Status { get; set; } = "Bekliyor";
     public bool Scanned, Done, Failed;
     public TimeSpan Duration => Titles.Aggregate(TimeSpan.Zero, (a, t) => a + t.Duration);
@@ -19,7 +21,6 @@ sealed class Mp4Item(string path)
 /// </summary>
 sealed class Mp4Panel : Panel
 {
-    static readonly int[] KbpsPresets = [1500, 2500, 4000, 6000];
     static readonly Dictionary<string, (string Name, string Hint)> Encoders = new()
     {
         ["x264"] = ("İşlemci (x264) — en iyi kalite",
@@ -45,6 +46,7 @@ sealed class Mp4Panel : Panel
     readonly FlatButton btnRemove = new() { Text = "Seçileni kaldır", Margin = new Padding(0, 0, 8, 0) };
     readonly FlatButton btnClear = new() { Text = "Listeyi temizle" };
     readonly TextBox txtKbps = FieldBox.NewTextBox();
+    readonly FlowLayoutPanel presetRow = new() { AutoSize = true, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
     readonly Label lblEstimate = new() { AutoSize = true, ForeColor = Theme.Text, Margin = new Padding(0, 6, 0, 8) };
     readonly DropDown cmbEncoder = new() { PreferredWidth = 330, Anchor = AnchorStyles.Left, Margin = new Padding(0) };
     readonly Label lblEncoderHint = new() { AutoSize = true, ForeColor = Theme.TextDim, MaximumSize = new Size(350, 0), Margin = new Padding(0, 4, 0, 0) };
@@ -127,14 +129,7 @@ sealed class Mp4Panel : Panel
         kbpsRow.Controls.Add(new FieldBox(txtKbps) { PreferredWidth = 80, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 6, 0) });
         kbpsRow.Controls.Add(new Label { Text = "kbps", AutoSize = true, ForeColor = Theme.TextDim, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 10, 0) });
         left.Controls.Add(kbpsRow);
-        var presetRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
-        presetRow.Controls.Add(new Label { Text = "Hazır:", AutoSize = true, ForeColor = Theme.TextDim, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 6, 0) });
-        foreach (int k in KbpsPresets)
-        {
-            var chip = new FlatButton { Text = k.ToString(), Style = FlatButton.Kind.Chip, Padding = new Padding(9, 3, 9, 3), Margin = new Padding(0, 0, 4, 0), Anchor = AnchorStyles.Left };
-            chip.Click += (_, _) => txtKbps.Text = k.ToString();
-            presetRow.Controls.Add(chip);
-        }
+        BuildPresetChips();
         left.Controls.Add(presetRow);
         lblEstimate.Font = new Font("Segoe UI Semibold", 9.5f);
         left.Controls.Add(lblEstimate);
@@ -188,7 +183,7 @@ sealed class Mp4Panel : Panel
         btnBrowse.Click += (_, _) => BrowseFolder();
         btnStart.Click += async (_, _) => await RunQueueAsync();
         btnCancel.Click += (_, _) => { cts?.Cancel(); btnCancel.Enabled = false; lblStatus.Text = "İptal ediliyor…"; };
-        txtKbps.TextChanged += (_, _) => { RefreshEstimate(); SaveSettings(); };
+        txtKbps.TextChanged += (_, _) => RefreshEstimate(); // sekmedeki değer o işe özel; varsayılan Ayarlar'da
         txtKbps.KeyPress += (_, e) => { if (!char.IsDigit(e.KeyChar) && !char.IsControl(e.KeyChar)) e.Handled = true; };
         cmbEncoder.SelectedIndexChanged += (_, _) => { UpdateEncoderHint(); SaveSettings(); };
         rbDeintOn.CheckedChanged += (_, _) => SaveSettings();
@@ -230,6 +225,31 @@ sealed class Mp4Panel : Panel
 
     // ───────────────────────── Ayarlar ─────────────────────────
 
+    /// <summary>Hazır bit hızı düğmeleri (Ayarlar'dan değiştirilebilir).</summary>
+    void BuildPresetChips()
+    {
+        presetRow.SuspendLayout();
+        foreach (Control c in presetRow.Controls.Cast<Control>().ToList()) c.Dispose();
+        presetRow.Controls.Clear();
+        presetRow.Controls.Add(new Label { Text = "Hazır:", AutoSize = true, ForeColor = Theme.TextDim, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 6, 0) });
+        foreach (int k in settings.Mp4Presets.Where(k => k > 0).Take(4))
+        {
+            var chip = new FlatButton { Text = k.ToString(), Style = FlatButton.Kind.Chip, Padding = new Padding(9, 3, 9, 3), Margin = new Padding(0, 0, 4, 0), Anchor = AnchorStyles.Left };
+            chip.Click += (_, _) => txtKbps.Text = k.ToString();
+            presetRow.Controls.Add(chip);
+        }
+        presetRow.ResumeLayout();
+    }
+
+    /// <summary>Ayarlar'da varsayılan/hazır bit hızları değişince çağrılır.</summary>
+    public void ApplyBitrateSettings()
+    {
+        BuildPresetChips();
+        if (IsBusy) return;
+        txtKbps.Text = settings.Mp4VideoKbps.ToString();
+        RefreshEstimate();
+    }
+
     int Kbps => int.TryParse(txtKbps.Text, out int k) ? Math.Clamp(k, 300, 50000) : 2500;
 
     void LoadSettings()
@@ -248,7 +268,6 @@ sealed class Mp4Panel : Panel
     void SaveSettings()
     {
         if (loading) return;
-        settings.Mp4VideoKbps = Kbps;
         if (cmbEncoder.SelectedIndex >= 0) settings.Mp4Encoder = encoderIds[cmbEncoder.SelectedIndex];
         settings.Mp4Deinterlace = rbDeintOn.Checked;
         settings.Mp4NextToIso = chkNextToIso.Checked;
@@ -400,19 +419,33 @@ sealed class Mp4Panel : Panel
         {
             var scan = await HandBrake.ScanAsync(item.Path, CancellationToken.None);
             var (titles, reason) = HandBrake.PickTitles(scan);
+            // HandBrake ISO içine yalnız DVD olarak bakar; DVD başlığı yoksa Video CD dosyalarını ara
+            if (titles.Count == 0 && await Task.Run(() => VideoCdIso.Find(item.Path)) is { } vcd)
+            {
+                // Ana video (en uzun) önce, diğerleri ad sırasıyla ayrı MP4 olarak
+                var main = vcd.Streams.OrderByDescending(v => v.Duration).First();
+                var ordered = new List<VcdStream> { main };
+                ordered.AddRange(vcd.Streams.Where(v => v != main));
+                item.VcdStreams = ordered;
+                titles = ordered.Select((v, i) => new HbTitle(i + 1, v.Duration, 0, 0, 0, 0, 0, 1, false)).ToList();
+                reason = $"{vcd.Kind}: {ordered.Count} video dosyası ({string.Join(", ", ordered.Select(v => $"{v.Name} ≈ {v.Duration:h\\:mm\\:ss}"))}).";
+                if (vcd.Kind == "Video CD")
+                    reason += " Video CD görüntüsü düşük çözünürlüklüdür (352×288); 1000–1500 kbps yeterlidir, daha yüksek bit hızı kaliteyi artırmaz, yalnız dosyayı büyütür.";
+            }
             item.Titles = titles;
             item.Scanned = true;
             if (titles.Count == 0)
             {
                 item.Failed = true;
                 item.Status = "Video yok";
-                Log($"{System.IO.Path.GetFileName(item.Path)}: dönüştürülecek video başlığı bulunamadı. " +
-                    "Bu bir DVD video kalıbı değil (veri diski veya Video CD olabilir).");
+                Log($"{System.IO.Path.GetFileName(item.Path)}: dönüştürülecek video bulunamadı " +
+                    "(ISO'da ne DVD VIDEO_TS ne de Video CD MPEGAV/MPEG2 klasörü var).");
             }
             else
             {
                 if (!IsCurrent(item)) item.Status = "Bekliyor";
-                Log($"{System.IO.Path.GetFileName(item.Path)}: {reason} " + string.Join("; ", titles.Select(t => t.Describe())));
+                Log($"{System.IO.Path.GetFileName(item.Path)}: {reason}" +
+                    (item.VcdStreams == null ? " " + string.Join("; ", titles.Select(t => t.Describe())) : ""));
             }
         }
         catch (Exception ex)
@@ -482,6 +515,7 @@ sealed class Mp4Panel : Panel
             $"deinterlace {(settingsNow.Deinterlace ? "açık" : "kapalı")}, ses AAC {HandBrake.AudioKbps} kbps.");
         var sw = Stopwatch.StartNew();
         int converted = 0;
+        var failedBefore = items.Where(i => i.Failed).ToHashSet();
         try
         {
             // Sıra çalışırken eklenen ISO'lar da (ISO sonrası otomatik MP4) aynı döngüde işlenir
@@ -510,8 +544,10 @@ sealed class Mp4Panel : Panel
                     RefreshEstimate();
                 }
             }
-            progress.Value = progress.Maximum;
-            lblStatus.Text = $"Bitti — {converted} ISO dönüştürüldü, süre {sw.Elapsed:hh\\:mm\\:ss}.";
+            int failedNow = items.Count(i => i.Failed && !failedBefore.Contains(i));
+            progress.Value = converted > 0 ? progress.Maximum : 0;
+            lblStatus.Text = $"Bitti — {converted} ISO dönüştürüldü" + (failedNow > 0 ? $", {failedNow} ISO'da hata (ayrıntı günlükte)" : "") +
+                             $", süre {sw.Elapsed:hh\\:mm\\:ss}.";
             Log(lblStatus.Text);
         }
         catch (OperationCanceledException)
@@ -542,8 +578,30 @@ sealed class Mp4Panel : Panel
         {
             var title = item.Titles[k];
             string output = OutputFor(item, k);
-            Log($"{name}: başlık {title.Index} → {output}");
+            var vcdStream = item.VcdStreams?[k];
+            string what = vcdStream?.Name ?? $"başlık {title.Index}";
+            Log($"{name}: {what} → {output}");
             var tsw = Stopwatch.StartNew();
+
+            // Video CD: videoyu önce MP4'ün klasörüne gizli geçici .mpg olarak çıkar, HandBrake'e onu ver
+            string input = item.Path;
+            int hbTitle = title.Index;
+            string? temp = null;
+            if (vcdStream != null)
+            {
+                temp = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(output)!,
+                    "." + System.IO.Path.GetFileNameWithoutExtension(output) + ".vcd.mpg");
+                var extractProg = new Progress<double>(f =>
+                {
+                    item.Status = $"Çıkarılıyor %{f * 100:0}";
+                    lblStatus.Text = $"ISO {index}/{count} · {name} · {vcdStream.Name} çıkarılıyor… %{f * 100:0}";
+                    lstFiles.Invalidate();
+                });
+                await Task.Run(() => VideoCdIso.Extract(item.Path, vcdStream, temp, extractProg, ct), ct);
+                try { File.SetAttributes(temp, File.GetAttributes(temp) | FileAttributes.Hidden); } catch { }
+                input = temp;
+                hbTitle = 1;
+            }
             var prog = new Progress<HbProgress>(p =>
             {
                 item.Status = $"%{p.Percent:0}";
@@ -556,14 +614,21 @@ sealed class Mp4Panel : Panel
             });
             var info = new Progress<string>(Log);
             bool encoderLogged = false;
-            await HandBrake.EncodeAsync(item.Path, title.Index, output, s, prog, ct, line =>
+            try
             {
-                if (encoderLogged && line.Contains("kodlayıcı")) return;
-                encoderLogged |= line.Contains("kodlayıcı");
-                ((IProgress<string>)info).Report(line);
-            });
+                await HandBrake.EncodeAsync(input, hbTitle, output, s, prog, ct, line =>
+                {
+                    if (encoderLogged && line.Contains("kodlayıcı")) return;
+                    encoderLogged |= line.Contains("kodlayıcı");
+                    ((IProgress<string>)info).Report(line);
+                });
+            }
+            finally
+            {
+                if (temp != null) try { File.Delete(temp); } catch { }
+            }
             doneBefore += title.Duration.TotalSeconds;
-            Log($"{name}: başlık {title.Index} tamam — {MainForm.FormatSize(new FileInfo(output).Length)}, süre {tsw.Elapsed:hh\\:mm\\:ss}.");
+            Log($"{name}: {what} tamam —{MainForm.FormatSize(new FileInfo(output).Length)}, süre {tsw.Elapsed:hh\\:mm\\:ss}.");
         }
         item.Status = "Bitti";
     }

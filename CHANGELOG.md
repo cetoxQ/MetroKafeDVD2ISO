@@ -1,5 +1,10 @@
 # Sürüm notları
 
+## v1.6.0 — 2026-11-23
+- Video CD ISO'ları da MP4'e dönüştürülüyor: ISO içindeki MPEGAV\*.DAT (Super Video CD'de MPEG2\*.MPG) dosyaları bulunuyor, ham CD sektörlerinden düz MPEG akışı çıkarılıp HandBrake'e veriliyor; birden fazla video varsa en uzunu ana MP4, diğerleri ayrı MP4
+- Ayarlar → MP4 dönüştürme: varsayılan video bit hızı ve dört hazır bit hızı değiştirilebiliyor; MP4 sekmesi her açılışta varsayılanla başlıyor
+- Dönüştürme bitince hata alan ISO sayısı da yazılıyor
+
 ## v1.5.1 — 2026-11-23
 - MP4 sekmesinde ilerleme çubuğunun altında sistem bilgisi: işlemci kullanımı, RAM (kullanılan / toplam), ekran kartının video kodlama / video çözme / 3D kullanımı; NVIDIA kartlarda ekran kartı sıcaklığı, destekleyen bilgisayarlarda anakart (ACPI) sıcaklığı
 - AMD ekran kartları HandBrake'in yeni adıyla (vcn) da tanınıyor

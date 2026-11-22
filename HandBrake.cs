@@ -12,7 +12,8 @@ public sealed record HbTitle(int Index, TimeSpan Duration, int Width, int Height
     double Fps, int Chapters, bool Interlaced)
 {
     public string Describe() =>
-        $"başlık {Index}: {Duration:h\\:mm\\:ss}, {Width}×{Height}, {Fps.ToString("0.###", CultureInfo.InvariantCulture)} fps" +
+        $"başlık {Index}: {Duration:h\\:mm\\:ss}" +
+        (Width > 0 ? $", {Width}×{Height}, {Fps.ToString("0.###", CultureInfo.InvariantCulture)} fps" : "") +
         (Chapters > 1 ? $", {Chapters} bölüm" : "") + (Interlaced ? ", taramalı" : "");
 }
 

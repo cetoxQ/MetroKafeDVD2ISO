@@ -54,7 +54,10 @@ public sealed class AppSettings
     public CopyMethod CopyMethod { get; set; } = CopyMethod.Auto;
 
     // MP4 dönüştürme
+    /// <summary>Varsayılan video bit hızı: MP4 sekmesi her açılışta bununla başlar.</summary>
     public int Mp4VideoKbps { get; set; } = 2500;
+    /// <summary>MP4 sekmesindeki hazır bit hızı düğmeleri.</summary>
+    public int[] Mp4Presets { get; set; } = [1500, 2500, 4000, 6000];
     public string Mp4Encoder { get; set; } = "x264";
     public bool Mp4Deinterlace { get; set; } = true;
     public bool Mp4NextToIso { get; set; } = true;

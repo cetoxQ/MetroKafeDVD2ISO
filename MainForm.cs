@@ -80,6 +80,8 @@ public sealed class MainForm : Form
     readonly CheckBox chkEject = DarkCheck("Diski çıkar");
     readonly CheckBox chkOpenFolder = DarkCheck("ISO'nun bulunduğu klasörü aç");
     readonly CheckBox chkAutoMp4 = DarkCheck("ISO'yu MP4'e de dönüştür (MP4'e Dönüştür sekmesindeki ayarlarla)");
+    readonly TextBox txtDefaultKbps = FieldBox.NewTextBox();
+    readonly TextBox[] txtPresets = [FieldBox.NewTextBox(), FieldBox.NewTextBox(), FieldBox.NewTextBox(), FieldBox.NewTextBox()];
     readonly Mp4Panel mp4Panel;
     bool mp4EncodersLoaded;
     static readonly int[] TimeoutChoices = [5, 10, 15, 30, 60];
@@ -456,6 +458,26 @@ public sealed class MainForm : Form
         Add(chkAutoMp4);
         Add(Hint("Kopyalama bitince ISO, MP4'e Dönüştür sekmesindeki sıraya eklenir ve dönüştürme kendiliğinden başlar."));
 
+        Add(Section("MP4 DÖNÜŞTÜRME"));
+        Control KbpsBox(TextBox t)
+        {
+            t.KeyPress += (_, e) => { if (!char.IsDigit(e.KeyChar) && !char.IsControl(e.KeyChar)) e.Handled = true; };
+            t.Leave += (_, _) => SaveBitrates();
+            t.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) SaveBitrates(); };
+            return new FieldBox(t) { PreferredWidth = 70, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 6, 0) };
+        }
+        Label Inline(string text, int right = 10) => new() { Text = text, AutoSize = true, ForeColor = Theme.TextDim, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, right, 0) };
+        var bitrateRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 6) };
+        bitrateRow.Controls.Add(Inline("Varsayılan video bit hızı:", 8));
+        bitrateRow.Controls.Add(KbpsBox(txtDefaultKbps));
+        bitrateRow.Controls.Add(Inline("kbps", 28));
+        bitrateRow.Controls.Add(Inline("Hazır değerler:", 8));
+        foreach (var t in txtPresets) bitrateRow.Controls.Add(KbpsBox(t));
+        bitrateRow.Controls.Add(Inline("kbps", 0));
+        Add(bitrateRow);
+        Add(Hint("MP4 sekmesi her açılışta varsayılan bit hızıyla başlar; sekmede yapılan değişiklik yalnız o işe özeldir. " +
+                 "Hazır değerler sekmedeki düğmelerde görünür (boş bırakılan düğme gösterilmez). DVD için 2500–4000, Video CD için 1000–1500 kbps uygundur."));
+
         root.Controls.Add(new Panel { Dock = DockStyle.Fill });
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         pageSettings.Controls.Add(root);
@@ -466,6 +488,18 @@ public sealed class MainForm : Form
         cmbTimeout.SelectedIndexChanged += (_, _) => SaveSettings();
         cmbMethod.SetItems(MethodChoices.Select(m => (object)m.Text));
         cmbMethod.SelectedIndexChanged += (_, _) => SaveSettings();
+    }
+
+    // Bit hızı kutuları kutudan çıkınca (veya Enter'da) kaydedilir; yazarken ara değerler (ör. "25") uygulanmaz
+    void SaveBitrates()
+    {
+        static int? Parse(string s) => int.TryParse(s.Trim(), out int v) && v > 0 ? Math.Clamp(v, 300, 50000) : null;
+        if (Parse(txtDefaultKbps.Text) is { } def) settings.Mp4VideoKbps = def;
+        txtDefaultKbps.Text = settings.Mp4VideoKbps.ToString();
+        settings.Mp4Presets = txtPresets.Select(t => Parse(t.Text) ?? 0).ToArray();
+        foreach (var t in txtPresets) if (Parse(t.Text) is { } v) t.Text = v.ToString(); else t.Text = "";
+        settings.Save();
+        mp4Panel.ApplyBitrateSettings();
     }
 
     void LoadSettings()
@@ -482,6 +516,9 @@ public sealed class MainForm : Form
         chkOpenFolder.Checked = settings.OpenFolderWhenDone;
         chkAutoUpdate.Checked = settings.AutoCheckUpdates;
         chkAutoMp4.Checked = settings.AutoMp4AfterIso;
+        txtDefaultKbps.Text = settings.Mp4VideoKbps.ToString();
+        for (int i = 0; i < txtPresets.Length; i++)
+            txtPresets[i].Text = i < settings.Mp4Presets.Length && settings.Mp4Presets[i] > 0 ? settings.Mp4Presets[i].ToString() : "";
         cmbMethod.SelectedIndex = Math.Max(0, Array.FindIndex(MethodChoices, m => m.Method == settings.CopyMethod));
         loadingSettings = false;
         ApplySettingsUi();
