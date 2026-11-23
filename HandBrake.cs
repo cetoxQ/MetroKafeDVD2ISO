@@ -41,6 +41,18 @@ public static class HandBrake
     public static long EstimateBytes(TimeSpan duration, int videoKbps) =>
         (long)((videoKbps + AudioKbps) * 1000.0 / 8 * duration.TotalSeconds * 1.01);
 
+    /// <summary>
+    /// MP4'ün yaklaşık hedef boyutta (ör. ISO boyutunda) çıkması için video bit hızı: EstimateBytes'ın tersi,
+    /// 100'ün katına yuvarlanır. Süre bilinmiyorsa null.
+    /// </summary>
+    public static int? AutoVideoKbps(long targetBytes, TimeSpan duration)
+    {
+        if (duration.TotalSeconds < 1 || targetBytes <= 0) return null;
+        double totalKbps = targetBytes * 8.0 / 1000 / duration.TotalSeconds / 1.01;
+        int video = (int)Math.Round((totalKbps - AudioKbps) / 100, MidpointRounding.AwayFromZero) * 100;
+        return Math.Clamp(video, 300, 50000);
+    }
+
     // ───────────────────────── Kurulum ─────────────────────────
 
     public static async Task<string> InstallAsync(IProgress<string> status, CancellationToken ct)

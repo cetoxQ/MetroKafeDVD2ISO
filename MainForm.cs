@@ -475,8 +475,8 @@ public sealed class MainForm : Form
         foreach (var t in txtPresets) bitrateRow.Controls.Add(KbpsBox(t));
         bitrateRow.Controls.Add(Inline("kbps", 0));
         Add(bitrateRow);
-        Add(Hint("MP4 sekmesi her açılışta varsayılan bit hızıyla başlar; sekmede yapılan değişiklik yalnız o işe özeldir. " +
-                 "Hazır değerler sekmedeki düğmelerde görünür (boş bırakılan düğme gösterilmez). DVD için 2500–4000, Video CD için 1000–1500 kbps uygundur."));
+        Add(Hint("Her ISO'nun bit hızı, MP4 yaklaşık ISO boyutunda çıkacak şekilde otomatik hesaplanır (100'ün katı) ve tabloda ayrı ayrı değiştirilebilir. " +
+                 "Varsayılan bit hızı yalnız süresi okunamayan ISO'larda kullanılır. Hazır değerler sekmedeki düğmelerde görünür (boş bırakılan gösterilmez)."));
 
         root.Controls.Add(new Panel { Dock = DockStyle.Fill });
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));

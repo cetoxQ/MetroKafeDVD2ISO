@@ -1,5 +1,12 @@
 # Sürüm notları
 
+## v1.7.0 — 2026-11-23
+- MP4 listesi tabloya dönüştü: ISO dosyası · boyut (MB) · başlık/süre · bit hızı · tahmini MP4 · durum
+- Her ISO için ayrı bit hızı: tablodaki bit hızı hücresine tıklayıp yazın; tahmini MP4 boyutu anında güncellenir
+- Otomatik bit hızı: ISO taranınca MP4 yaklaşık ISO boyutunda çıkacak şekilde hesaplanıyor, 100'ün katına yuvarlanıyor (ör. 462 MB / 45 dk → 1300 kbps); tabloda "(oto)" olarak görünür
+- Hazır bit hızı düğmeleri ve yeni "Otomatik" düğmesi seçili satırlara (seçim yoksa bekleyen tümüne) uygulanıyor
+- Ayarlar'daki varsayılan bit hızı artık yalnız süresi okunamayan ISO'larda kullanılıyor
+
 ## v1.6.1 — 2026-11-23
 - Düzeltme: Video CD ISO'larında film bulunamıyordu. Windows'un ISO oluşturucusu ISO9660 tarafında adları 8.3'e sıkıştırıyor (AVSEQ01.DAT → AVSEQ010); artık gerçek adlar Joliet'ten okunuyor ve MPEGAV/MPEG2 klasöründeki her dosya uzantıya bakılmadan alınıyor. Gerçek bir VCD ile uçtan uca doğrulandı
 - MP4 ekranı sadeleşti: bit hızı değeri etiketin yanında, kodlayıcı açıklaması ipucunda, taramalı görüntü düzeltme tıklayınca açılan bölümde; ses ve çözünürlük notu onun altında; "ISO ile aynı klasöre kaydet" işaretliyken konum satırı gizli. Günlük alanı belirgin şekilde büyüdü

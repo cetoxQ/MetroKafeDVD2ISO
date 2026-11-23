@@ -11,6 +11,12 @@ sealed class Mp4Item(string path)
     public List<VcdStream>? VcdStreams { get; set; }
     public string Status { get; set; } = "Bekliyor";
     public bool Scanned, Done, Failed;
+    /// <summary>ISO dosyasının boyutu (bayt).</summary>
+    public long IsoBytes { get; } = File.Exists(path) ? new FileInfo(path).Length : 0;
+    /// <summary>Bu ISO için video bit hızı (satırda düzenlenebilir).</summary>
+    public int Kbps { get; set; }
+    /// <summary>true: bit hızı ISO boyutuna göre otomatik hesaplandı (elle değiştirilmedi).</summary>
+    public bool AutoKbps { get; set; } = true;
     public TimeSpan Duration => Titles.Aggregate(TimeSpan.Zero, (a, t) => a + t.Duration);
     public bool Pending => !Done && !Failed;
 }
@@ -40,12 +46,22 @@ sealed class Mp4Panel : Panel
     CancellationTokenSource? cts;
     bool loading;
 
-    readonly ListBox lstFiles = new() { Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, BackColor = Theme.Surface, ForeColor = Theme.Text, DrawMode = DrawMode.OwnerDrawFixed, IntegralHeight = false };
+    readonly DataGridView grid = new()
+    {
+        Dock = DockStyle.Fill, BackgroundColor = Theme.Surface, BorderStyle = BorderStyle.None,
+        CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal, GridColor = Theme.Border,
+        RowHeadersVisible = false, AllowUserToAddRows = false, AllowUserToDeleteRows = false, AllowUserToResizeRows = false,
+        AllowUserToOrderColumns = false, SelectionMode = DataGridViewSelectionMode.FullRowSelect, MultiSelect = true,
+        AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, EnableHeadersVisualStyles = false,
+        ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
+        ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None, EditMode = DataGridViewEditMode.EditOnKeystrokeOrF2,
+        ScrollBars = ScrollBars.Vertical, AllowDrop = true, ShowCellToolTips = true,
+    };
+    DataGridViewTextBoxColumn colName = null!, colSize = null!, colInfo = null!, colKbps = null!, colEstimate = null!, colStatus = null!;
     readonly FlatButton btnAddFiles = new() { Text = "ISO ekle…", Margin = new Padding(0, 0, 8, 0) };
     readonly FlatButton btnAddFolder = new() { Text = "Klasör ekle…", Margin = new Padding(0, 0, 8, 0) };
     readonly FlatButton btnRemove = new() { Text = "Seçileni kaldır", Margin = new Padding(0, 0, 8, 0) };
     readonly FlatButton btnClear = new() { Text = "Listeyi temizle" };
-    readonly TextBox txtKbps = FieldBox.NewTextBox();
     readonly FlowLayoutPanel presetRow = new() { AutoSize = true, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
     readonly Label lblEstimate = new() { AutoSize = true, ForeColor = Theme.Text, Margin = new Padding(0, 6, 0, 8) };
     readonly DropDown cmbEncoder = new() { PreferredWidth = 330, Anchor = AnchorStyles.Left, Margin = new Padding(0) };
@@ -111,29 +127,24 @@ sealed class Mp4Panel : Panel
         void AddSetup(Control c) { Add(c); setupControls.Add(c); }
 
         Add(MainForm.Section("ISO DOSYALARI"));
-        lstFiles.ItemHeight = TextRenderer.MeasureText("Ag", Font).Height + 10;
-        lstFiles.DrawItem += DrawFileItem;
-        var listBox = new Panel { Dock = DockStyle.Top, Height = 104, BackColor = Theme.Surface, Padding = new Padding(8, 6, 6, 6), Margin = new Padding(0, 0, 0, 8) };
-        listBox.Controls.Add(lstFiles);
+        BuildGrid();
+        var listBox = new Panel { Dock = DockStyle.Top, Height = 132, BackColor = Theme.Surface, Padding = new Padding(6, 4, 4, 4), Margin = new Padding(0, 0, 0, 8) };
+        listBox.Controls.Add(grid);
         Add(listBox);
         var listButtons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top, WrapContents = false, Margin = new Padding(0, 0, 0, 4) };
         listButtons.Controls.AddRange([btnAddFiles, btnAddFolder, btnRemove, btnClear]);
         Add(listButtons);
 
         AddSetup(MainForm.Section("DÖNÜŞTÜRME AYARLARI"));
-        var grid = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 2, Margin = new Padding(0) };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        var settingsGrid = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 2, Margin = new Padding(0) };
+        settingsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        settingsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
 
         Label Inline(string text, int right = 6) => new() { Text = text, AutoSize = true, ForeColor = Theme.TextDim, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, right, 0) };
 
-        // Sol: bit hızı (değer yanında), hazır değerler, tahmini boyut, kodlayıcı (açıklaması ipucunda)
+        // Sol: bit hızı düğmeleri (seçili satırlara), toplam tahmini boyut, kodlayıcı (açıklaması ipucunda)
         var left = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Fill, Margin = new Padding(0, 0, 12, 0) };
-        var kbpsRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
-        kbpsRow.Controls.Add(Inline("Ortalama video bit hızı:", 8));
-        kbpsRow.Controls.Add(new FieldBox(txtKbps) { PreferredWidth = 70, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 6, 0) });
-        kbpsRow.Controls.Add(Inline("kbps", 0));
-        left.Controls.Add(kbpsRow);
+        left.Controls.Add(Inline("Bit hızı tabloda her ISO için ayrı girilir. Seçili satırlara uygula:", 0));
         BuildPresetChips();
         left.Controls.Add(presetRow);
         lblEstimate.Font = new Font("Segoe UI Semibold", 9.5f);
@@ -157,9 +168,9 @@ sealed class Mp4Panel : Panel
         right.Controls.Add(SmallHint("Ses: AAC 160 kbps stereo (her cihazda oynar).", 0));
         right.Controls.Add(SmallHint("Çözünürlük ve kare hızı kaynakla aynı kalır (kırpma/ölçekleme yok). Çok geçişli kodlama ve turbo analiz kapalı.", 0));
 
-        grid.Controls.Add(left, 0, 0);
-        grid.Controls.Add(right, 1, 0);
-        AddSetup(grid);
+        settingsGrid.Controls.Add(left, 0, 0);
+        settingsGrid.Controls.Add(right, 1, 0);
+        AddSetup(settingsGrid);
 
         // "ISO ile aynı klasöre" işaretliyken konum satırı gizli; işaret kaldırılınca aşağı doğru açılır
         AddSetup(chkNextToIso);
@@ -189,8 +200,6 @@ sealed class Mp4Panel : Panel
         btnBrowse.Click += (_, _) => BrowseFolder();
         btnStart.Click += async (_, _) => await RunQueueAsync();
         btnCancel.Click += (_, _) => { cts?.Cancel(); btnCancel.Enabled = false; lblStatus.Text = "İptal ediliyor…"; };
-        txtKbps.TextChanged += (_, _) => RefreshEstimate(); // sekmedeki değer o işe özel; varsayılan Ayarlar'da
-        txtKbps.KeyPress += (_, e) => { if (!char.IsDigit(e.KeyChar) && !char.IsControl(e.KeyChar)) e.Handled = true; };
         cmbEncoder.SelectedIndexChanged += (_, _) => { UpdateEncoderHint(); SaveSettings(); };
         rbDeintOn.CheckedChanged += (_, _) => { UpdateDeintHeader(); SaveSettings(); };
         btnDeint.Click += (_, _) => { deintBody.Visible = !deintBody.Visible; UpdateDeintHeader(); };
@@ -198,9 +207,8 @@ sealed class Mp4Panel : Panel
         txtFolder.TextChanged += (_, _) => SaveSettings();
         statsTimer.Tick += async (_, _) => await UpdateSystemAsync();
         VisibleChanged += (_, _) => { if (Visible || IsBusy) statsTimer.Start(); else statsTimer.Stop(); };
-        lstFiles.AllowDrop = true;
-        lstFiles.DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
-        lstFiles.DragDrop += (_, e) =>
+        grid.DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
+        grid.DragDrop += (_, e) =>
         {
             if (e.Data?.GetData(DataFormats.FileDrop) is not string[] paths) return;
             foreach (var p in paths)
@@ -209,25 +217,111 @@ sealed class Mp4Panel : Panel
         };
     }
 
-    void DrawFileItem(object? sender, DrawItemEventArgs e)
+    void BuildGrid()
     {
-        if (e.Index < 0 || e.Index >= items.Count) return;
-        var item = items[e.Index];
-        bool sel = (e.State & DrawItemState.Selected) != 0;
-        using (var b = new SolidBrush(sel ? Theme.SurfaceHover : Theme.Surface)) e.Graphics.FillRectangle(b, e.Bounds);
+        var cell = grid.DefaultCellStyle;
+        cell.BackColor = Theme.Surface; cell.ForeColor = Theme.Text;
+        cell.SelectionBackColor = Theme.SurfaceHover; cell.SelectionForeColor = Theme.Text;
+        cell.Padding = new Padding(4, 0, 4, 0);
+        var head = grid.ColumnHeadersDefaultCellStyle;
+        head.BackColor = Theme.Surface; head.ForeColor = Theme.TextDim; head.SelectionBackColor = Theme.Surface;
+        head.Font = new Font("Segoe UI", 8.5f); head.Padding = new Padding(4, 0, 4, 0);
+        grid.ColumnHeadersHeight = 24;
+        grid.RowTemplate.Height = 26;
 
-        string info = !item.Scanned ? ""
-            : item.Titles.Count == 0 ? "video bulunamadı"
-            : $"{item.Titles.Count} başlık · {item.Duration:h\\:mm\\:ss} · ≈ {MainForm.FormatSize(HandBrake.EstimateBytes(item.Duration, Kbps))}";
-        var statusColor = item.Failed ? Theme.Error : item.Done ? Theme.Success : IsCurrent(item) ? Theme.Accent : Theme.TextDim;
-        int statusWidth = 210;
-        var nameRect = new Rectangle(e.Bounds.X + 4, e.Bounds.Y, e.Bounds.Width - statusWidth - 230, e.Bounds.Height);
-        var infoRect = new Rectangle(nameRect.Right + 6, e.Bounds.Y, 220, e.Bounds.Height);
-        var statusRect = new Rectangle(e.Bounds.Right - statusWidth, e.Bounds.Y, statusWidth - 4, e.Bounds.Height);
-        var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine;
-        TextRenderer.DrawText(e.Graphics, System.IO.Path.GetFileName(item.Path), lstFiles.Font, nameRect, Theme.Text, flags);
-        TextRenderer.DrawText(e.Graphics, info, lstFiles.Font, infoRect, Theme.TextDim, flags);
-        TextRenderer.DrawText(e.Graphics, item.Status, lstFiles.Font, statusRect, statusColor, flags | TextFormatFlags.Right);
+        DataGridViewTextBoxColumn Col(string header, float weight, bool right = false)
+        {
+            var c = new DataGridViewTextBoxColumn { HeaderText = header, FillWeight = weight, MinimumWidth = 40, ReadOnly = true, SortMode = DataGridViewColumnSortMode.NotSortable };
+            var align = right ? DataGridViewContentAlignment.MiddleRight : DataGridViewContentAlignment.MiddleLeft;
+            c.DefaultCellStyle.Alignment = align;
+            c.HeaderCell.Style.Alignment = align;
+            return c;
+        }
+        colName = Col("ISO dosyası", 30);
+        colSize = Col("Boyut", 11, true);
+        colInfo = Col("Başlık · süre", 19);
+        colKbps = Col("Bit hızı (kbps)", 15, true);
+        colKbps.ReadOnly = false;
+        colKbps.DefaultCellStyle.ForeColor = Theme.AccentHover;
+        colKbps.DefaultCellStyle.BackColor = Color.FromArgb(42, 44, 52);
+        colKbps.ToolTipText = "Tıklayıp bu ISO için bit hızını yazın";
+        colEstimate = Col("Tahmini MP4", 13, true);
+        colStatus = Col("Durum", 13, true);
+        grid.Columns.AddRange(colName, colSize, colInfo, colKbps, colEstimate, colStatus);
+
+        // Bit hızı hücresine tıklayınca düzenleme başlar (odak geri gelince kendiliğinden başlamasın)
+        grid.CellClick += (_, e) =>
+        {
+            if (e.RowIndex >= 0 && e.ColumnIndex == colKbps.Index) grid.BeginEdit(true);
+        };
+        grid.CellBeginEdit += (_, e) =>
+        {
+            // Biten, hata alan, taranmamış ya da şu an dönüştürülen ISO'nun bit hızı değiştirilemez
+            if (grid.Rows[e.RowIndex].Tag is not Mp4Item item || !item.Pending || IsCurrent(item) || !item.Scanned) { e.Cancel = true; return; }
+            grid.Rows[e.RowIndex].Cells[colKbps.Index].Value = item.Kbps.ToString(); // "(oto)" ekini düzenlerken gösterme
+        };
+        grid.EditingControlShowing += (_, e) =>
+        {
+            if (e.Control is TextBox tb)
+            {
+                tb.BackColor = Theme.SurfaceHover;
+                tb.ForeColor = Theme.Text;
+                tb.KeyPress -= DigitsOnly;
+                tb.KeyPress += DigitsOnly;
+            }
+        };
+        grid.CellEndEdit += (_, e) =>
+        {
+            if (grid.Rows[e.RowIndex].Tag is not Mp4Item item) return;
+            if (int.TryParse(grid.Rows[e.RowIndex].Cells[colKbps.Index].Value?.ToString(), out int k) && k > 0)
+            {
+                int v = Math.Clamp(k, 300, 50000);
+                if (v != item.Kbps)
+                {
+                    item.Kbps = v;
+                    item.AutoKbps = false;
+                    Log($"{System.IO.Path.GetFileName(item.Path)}: bit hızı {v} kbps (MP4 ≈ {MainForm.FormatSize(HandBrake.EstimateBytes(item.Duration, v))}).");
+                }
+            }
+            UpdateRow(item);
+            RefreshEstimate();
+        };
+        grid.CellFormatting += (_, e) =>
+        {
+            if (e.RowIndex < 0 || e.ColumnIndex != colStatus.Index || grid.Rows[e.RowIndex].Tag is not Mp4Item item || e.CellStyle == null) return;
+            e.CellStyle.ForeColor = item.Failed ? Theme.Error : item.Done ? Theme.Success : IsCurrent(item) ? Theme.Accent : Theme.TextDim;
+            e.CellStyle.SelectionForeColor = e.CellStyle.ForeColor;
+        };
+    }
+
+    static void DigitsOnly(object? sender, KeyPressEventArgs e)
+    {
+        if (!char.IsDigit(e.KeyChar) && !char.IsControl(e.KeyChar)) e.Handled = true;
+    }
+
+    void UpdateRow(Mp4Item item)
+    {
+        foreach (DataGridViewRow row in grid.Rows)
+        {
+            if (!ReferenceEquals(row.Tag, item)) continue;
+            bool hasVideo = item.Scanned && item.Titles.Count > 0;
+            row.Cells[colName.Index].Value = System.IO.Path.GetFileName(item.Path);
+            row.Cells[colName.Index].ToolTipText = item.Path;
+            row.Cells[colSize.Index].Value = item.IsoBytes > 0 ? $"{item.IsoBytes / (1024.0 * 1024):N0} MB" : "—";
+            row.Cells[colInfo.Index].Value = !item.Scanned ? "" : hasVideo ? $"{item.Titles.Count} başlık · {item.Duration:h\\:mm\\:ss}" : "video bulunamadı";
+            if (!row.Cells[colKbps.Index].IsInEditMode)
+                row.Cells[colKbps.Index].Value = hasVideo ? item.Kbps + (item.AutoKbps ? " (oto)" : "") : "";
+            row.Cells[colEstimate.Index].Value = hasVideo ? "≈ " + MainForm.FormatSize(HandBrake.EstimateBytes(item.Duration, item.Kbps)) : "";
+            row.Cells[colStatus.Index].Value = item.Status;
+            return;
+        }
+    }
+
+    /// <summary>MP4 yaklaşık ISO boyutunda çıkacak şekilde bit hızı (100'ün katı); süre yoksa Ayarlar'daki varsayılan.</summary>
+    void SetAutoKbps(Mp4Item item)
+    {
+        item.Kbps = HandBrake.AutoVideoKbps(item.IsoBytes, item.Duration) ?? settings.Mp4VideoKbps;
+        item.AutoKbps = true;
     }
 
     // ───────────────────────── Ayarlar ─────────────────────────
@@ -238,31 +332,36 @@ sealed class Mp4Panel : Panel
         presetRow.SuspendLayout();
         foreach (Control c in presetRow.Controls.Cast<Control>().ToList()) c.Dispose();
         presetRow.Controls.Clear();
-        presetRow.Controls.Add(new Label { Text = "Hazır:", AutoSize = true, ForeColor = Theme.TextDim, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 6, 0) });
-        foreach (int k in settings.Mp4Presets.Where(k => k > 0).Take(4))
+        FlatButton Chip(string text, Action<Mp4Item> apply)
         {
-            var chip = new FlatButton { Text = k.ToString(), Style = FlatButton.Kind.Chip, Padding = new Padding(9, 3, 9, 3), Margin = new Padding(0, 0, 4, 0), Anchor = AnchorStyles.Left };
-            chip.Click += (_, _) => txtKbps.Text = k.ToString();
-            presetRow.Controls.Add(chip);
+            var chip = new FlatButton { Text = text, Style = FlatButton.Kind.Chip, Padding = new Padding(9, 3, 9, 3), Margin = new Padding(0, 0, 4, 0), Anchor = AnchorStyles.Left };
+            chip.Click += (_, _) => ApplyToSelected(apply);
+            return chip;
         }
+        var auto = Chip("Otomatik", SetAutoKbps);
+        tips.SetToolTip(auto, "MP4 yaklaşık ISO boyutunda çıkacak şekilde (100'ün katı)");
+        presetRow.Controls.Add(auto);
+        foreach (int k in settings.Mp4Presets.Where(k => k > 0).Take(4))
+            presetRow.Controls.Add(Chip(k.ToString(), i => { i.Kbps = k; i.AutoKbps = false; }));
         presetRow.ResumeLayout();
     }
 
-    /// <summary>Ayarlar'da varsayılan/hazır bit hızları değişince çağrılır.</summary>
-    public void ApplyBitrateSettings()
+    /// <summary>Seçili satırlara (seçim yoksa bekleyen tüm satırlara) bit hızı uygular.</summary>
+    void ApplyToSelected(Action<Mp4Item> apply)
     {
-        BuildPresetChips();
-        if (IsBusy) return;
-        txtKbps.Text = settings.Mp4VideoKbps.ToString();
+        grid.EndEdit();
+        var selected = grid.SelectedRows.Cast<DataGridViewRow>().Select(r => r.Tag).OfType<Mp4Item>().ToList();
+        var targets = (selected.Count > 0 ? selected : items).Where(i => i.Pending && i.Scanned && i.Titles.Count > 0 && !IsCurrent(i)).ToList();
+        foreach (var i in targets) apply(i);
         RefreshEstimate();
     }
 
-    int Kbps => int.TryParse(txtKbps.Text, out int k) ? Math.Clamp(k, 300, 50000) : 2500;
+    /// <summary>Ayarlar'da hazır bit hızları değişince çağrılır.</summary>
+    public void ApplyBitrateSettings() => BuildPresetChips();
 
     void LoadSettings()
     {
         loading = true;
-        txtKbps.Text = settings.Mp4VideoKbps.ToString();
         rbDeintOn.Checked = settings.Mp4Deinterlace;
         rbDeintOff.Checked = !settings.Mp4Deinterlace;
         chkNextToIso.Checked = settings.Mp4NextToIso;
@@ -345,15 +444,16 @@ sealed class Mp4Panel : Panel
         var scanned = items.Where(i => i.Scanned && i.Titles.Count > 0 && !i.Done).ToList();
         if (scanned.Count == 0)
         {
-            lblEstimate.Text = $"Tahmini boyut: saatlik video ≈ {MainForm.FormatSize(HandBrake.EstimateBytes(TimeSpan.FromHours(1), Kbps))}";
+            lblEstimate.Text = "Toplam MP4 ≈ —";
         }
         else
         {
             var total = scanned.Aggregate(TimeSpan.Zero, (a, i) => a + i.Duration);
-            lblEstimate.Text = $"Tahmini toplam boyut: ≈ {MainForm.FormatSize(HandBrake.EstimateBytes(total, Kbps))}  " +
-                               $"({scanned.Count} ISO, {(int)total.TotalHours}:{total:mm\\:ss})";
+            long bytes = scanned.Sum(i => HandBrake.EstimateBytes(i.Duration, i.Kbps));
+            long iso = scanned.Sum(i => i.IsoBytes);
+            lblEstimate.Text = $"Toplam MP4 ≈ {MainForm.FormatSize(bytes)}  (ISO'lar {MainForm.FormatSize(iso)})";
         }
-        lstFiles.Invalidate();
+        foreach (var i in items) UpdateRow(i);
     }
 
     void BrowseFolder()
@@ -386,20 +486,17 @@ sealed class Mp4Panel : Panel
 
     void RemoveSelected()
     {
-        int i = lstFiles.SelectedIndex;
-        if (i < 0 || i >= items.Count || IsCurrent(items[i])) return;
-        items.RemoveAt(i);
+        foreach (var item in grid.SelectedRows.Cast<DataGridViewRow>().Select(r => r.Tag).OfType<Mp4Item>().Where(i => !IsCurrent(i)).ToList())
+            items.Remove(item);
         RefreshList();
     }
 
     void RefreshList()
     {
-        int sel = lstFiles.SelectedIndex;
-        lstFiles.BeginUpdate();
-        lstFiles.Items.Clear();
-        foreach (var i in items) lstFiles.Items.Add(i.Path);
-        lstFiles.EndUpdate();
-        if (sel >= 0 && sel < lstFiles.Items.Count) lstFiles.SelectedIndex = sel;
+        grid.EndEdit();
+        grid.Rows.Clear();
+        foreach (var i in items) grid.Rows[grid.Rows.Add()].Tag = i;
+        grid.ClearSelection();
         RefreshEstimate();
     }
 
@@ -422,7 +519,7 @@ sealed class Mp4Panel : Panel
     {
         if (item.Scanned) return;
         item.Status = "Taranıyor…";
-        lstFiles.Invalidate();
+        UpdateRow(item);
         try
         {
             var scan = await HandBrake.ScanAsync(item.Path, CancellationToken.None);
@@ -452,8 +549,11 @@ sealed class Mp4Panel : Panel
             else
             {
                 if (!IsCurrent(item)) item.Status = "Bekliyor";
+                if (item.AutoKbps) SetAutoKbps(item);
                 Log($"{System.IO.Path.GetFileName(item.Path)}: {reason}" +
                     (item.VcdStreams == null ? " " + string.Join("; ", titles.Select(t => t.Describe())) : ""));
+                Log($"{System.IO.Path.GetFileName(item.Path)}: ISO {MainForm.FormatSize(item.IsoBytes)} → otomatik bit hızı {item.Kbps} kbps " +
+                    $"(MP4 ≈ {MainForm.FormatSize(HandBrake.EstimateBytes(item.Duration, item.Kbps))}). Değiştirmek için tablodaki bit hızına tıklayın.");
             }
         }
         catch (Exception ex)
@@ -515,11 +615,12 @@ sealed class Mp4Panel : Panel
 
         cts = new CancellationTokenSource();
         SetBusy(true);
-        var settingsNow = new EncodeSettings(Kbps, encoderIds[Math.Max(0, cmbEncoder.SelectedIndex)], rbDeintOn.Checked);
+        grid.EndEdit();
+        var settingsNow = new EncodeSettings(0, encoderIds[Math.Max(0, cmbEncoder.SelectedIndex)], rbDeintOn.Checked);
         if (settingsNow.Encoder != "x264")
             Log("Not: Ekran kartı kodlamayı yapar; taramalı görüntü düzeltme (Decomb) ve ses işlemcide yapıldığı için işlemci de kullanılır. " +
                 "Görev Yöneticisi'nde ekran kartı yükü \"3D\" değil video grafiklerinde (Video Encode / Video Decode / Video Codec) görünür.");
-        Log($"Dönüştürme başladı: {settingsNow.VideoKbps} kbps, {Encoders.GetValueOrDefault(settingsNow.Encoder).Name ?? settingsNow.Encoder}, " +
+        Log($"Dönüştürme başladı: {Encoders.GetValueOrDefault(settingsNow.Encoder).Name ?? settingsNow.Encoder}, " +
             $"deinterlace {(settingsNow.Deinterlace ? "açık" : "kapalı")}, ses AAC {HandBrake.AudioKbps} kbps.");
         var sw = Stopwatch.StartNew();
         int converted = 0;
@@ -535,7 +636,7 @@ sealed class Mp4Panel : Panel
                 if (item.Failed) continue;
                 try
                 {
-                    await ConvertItemAsync(item, settingsNow, cts.Token);
+                    await ConvertItemAsync(item, settingsNow with { VideoKbps = item.Kbps }, cts.Token);
                     item.Done = true;
                     converted++;
                 }
@@ -588,7 +689,7 @@ sealed class Mp4Panel : Panel
             string output = OutputFor(item, k);
             var vcdStream = item.VcdStreams?[k];
             string what = vcdStream?.Name ?? $"başlık {title.Index}";
-            Log($"{name}: {what} → {output}");
+            Log($"{name}: {what} → {output} ({s.VideoKbps} kbps)");
             var tsw = Stopwatch.StartNew();
 
             // Video CD: videoyu önce MP4'ün klasörüne gizli geçici .mpg olarak çıkar, HandBrake'e onu ver
@@ -603,7 +704,7 @@ sealed class Mp4Panel : Panel
                 {
                     item.Status = $"Çıkarılıyor %{f * 100:0}";
                     lblStatus.Text = $"ISO {index}/{count} · {name} · {vcdStream.Name} çıkarılıyor… %{f * 100:0}";
-                    lstFiles.Invalidate();
+                    UpdateRow(item);
                 });
                 await Task.Run(() => VideoCdIso.Extract(item.Path, vcdStream, temp, extractProg, ct), ct);
                 try { File.SetAttributes(temp, File.GetAttributes(temp) | FileAttributes.Hidden); } catch { }
@@ -618,7 +719,7 @@ sealed class Mp4Panel : Panel
                 lblStatus.Text = $"ISO {index}/{count} · {name}" + (item.Titles.Count > 1 ? $" · başlık {k + 1}/{item.Titles.Count}" : "") +
                                  $" · %{p.Percent:0.0}" + (p.Fps > 0 ? $" · {p.Fps:0} fps" : "") +
                                  (p.Eta is { } eta ? $" · kalan {eta:hh\\:mm\\:ss}" : "");
-                lstFiles.Invalidate();
+                UpdateRow(item);
             });
             var info = new Progress<string>(Log);
             bool encoderLogged = false;
@@ -636,7 +737,7 @@ sealed class Mp4Panel : Panel
                 if (temp != null) try { File.Delete(temp); } catch { }
             }
             doneBefore += title.Duration.TotalSeconds;
-            Log($"{name}: {what} tamam —{MainForm.FormatSize(new FileInfo(output).Length)}, süre {tsw.Elapsed:hh\\:mm\\:ss}.");
+            Log($"{name}: {what} tamam — {MainForm.FormatSize(new FileInfo(output).Length)}, süre {tsw.Elapsed:hh\\:mm\\:ss}.");
         }
         item.Status = "Bitti";
     }
