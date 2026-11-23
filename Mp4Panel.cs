@@ -49,7 +49,10 @@ sealed class Mp4Panel : Panel
     readonly FlowLayoutPanel presetRow = new() { AutoSize = true, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
     readonly Label lblEstimate = new() { AutoSize = true, ForeColor = Theme.Text, Margin = new Padding(0, 6, 0, 8) };
     readonly DropDown cmbEncoder = new() { PreferredWidth = 330, Anchor = AnchorStyles.Left, Margin = new Padding(0) };
-    readonly Label lblEncoderHint = new() { AutoSize = true, ForeColor = Theme.TextDim, MaximumSize = new Size(350, 0), Margin = new Padding(0, 4, 0, 0) };
+    readonly FlatButton btnDeint = new() { Style = FlatButton.Kind.Tab, Padding = new Padding(0, 4, 8, 4), Margin = new Padding(0, 0, 0, 2) };
+    readonly FlowLayoutPanel deintBody = new() { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Visible = false, Margin = new Padding(0) };
+    TableLayoutPanel folderRow = null!;
+    readonly ToolTip tips = new() { InitialDelay = 300, AutoPopDelay = 15000 };
     readonly RadioButton rbDeintOn = DarkRadio("Açık — taramalı kareleri düzelt (Decomb)");
     readonly RadioButton rbDeintOff = DarkRadio("Kapalı — görüntüye dokunma");
     readonly CheckBox chkNextToIso = MainForm.DarkCheck("MP4'ü ISO ile aynı klasöre kaydet");
@@ -122,44 +125,47 @@ sealed class Mp4Panel : Panel
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
 
-        // Sol: bit hızı, tahmini boyut, kodlayıcı
+        Label Inline(string text, int right = 6) => new() { Text = text, AutoSize = true, ForeColor = Theme.TextDim, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, right, 0) };
+
+        // Sol: bit hızı (değer yanında), hazır değerler, tahmini boyut, kodlayıcı (açıklaması ipucunda)
         var left = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Fill, Margin = new Padding(0, 0, 12, 0) };
-        left.Controls.Add(new Label { Text = "Ortalama video bit hızı", AutoSize = true, ForeColor = Theme.TextDim, Margin = new Padding(0, 0, 0, 4) });
         var kbpsRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
-        kbpsRow.Controls.Add(new FieldBox(txtKbps) { PreferredWidth = 80, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 6, 0) });
-        kbpsRow.Controls.Add(new Label { Text = "kbps", AutoSize = true, ForeColor = Theme.TextDim, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 10, 0) });
+        kbpsRow.Controls.Add(Inline("Ortalama video bit hızı:", 8));
+        kbpsRow.Controls.Add(new FieldBox(txtKbps) { PreferredWidth = 70, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 6, 0) });
+        kbpsRow.Controls.Add(Inline("kbps", 0));
         left.Controls.Add(kbpsRow);
         BuildPresetChips();
         left.Controls.Add(presetRow);
         lblEstimate.Font = new Font("Segoe UI Semibold", 9.5f);
         left.Controls.Add(lblEstimate);
-        left.Controls.Add(new Label { Text = "Kodlayıcı", AutoSize = true, ForeColor = Theme.TextDim, Margin = new Padding(0, 0, 0, 4) });
-        left.Controls.Add(cmbEncoder);
-        left.Controls.Add(lblEncoderHint);
+        var encRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
+        encRow.Controls.Add(Inline("Kodlayıcı:", 8));
+        cmbEncoder.PreferredWidth = 280;
+        encRow.Controls.Add(cmbEncoder);
+        left.Controls.Add(encRow);
 
-        // Sağ: taramalı görüntü düzeltme, ses
+        // Sağ: tıklayınca açılan taramalı görüntü düzeltme, altında ses ve çözünürlük notu
         var right = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Fill, Margin = new Padding(0) };
-        right.Controls.Add(new Label { Text = "Taramalı görüntü düzeltme (deinterlace)", AutoSize = true, ForeColor = Theme.TextDim, Margin = new Padding(0, 0, 0, 2) });
-        right.Controls.Add(rbDeintOn);
-        right.Controls.Add(SmallHint("Düğün kameralarının çoğu taramalı (interlaced) kayıt yapar. Yalnız taramalı kareler düzeltilir; " +
-                                     "bilgisayarda ve telefonda hareketli sahnelerde tarak gibi çizgiler görünmez. Kare hızı kaynakla aynı kalır."));
-        right.Controls.Add(rbDeintOff);
-        right.Controls.Add(SmallHint("Görüntüye hiçbir filtre uygulanmaz. Kaynak taramalıysa bilgisayarda hareketli sahnelerde yatay çizgiler " +
-                                     "görünebilir; televizyonda genelde sorun olmaz."));
+        right.Controls.Add(btnDeint);
+        deintBody.Controls.Add(rbDeintOn);
+        deintBody.Controls.Add(SmallHint("Düğün kameralarının çoğu taramalı (interlaced) kayıt yapar. Yalnız taramalı kareler düzeltilir; " +
+                                         "bilgisayarda ve telefonda hareketli sahnelerde tarak gibi çizgiler görünmez. Kare hızı kaynakla aynı kalır."));
+        deintBody.Controls.Add(rbDeintOff);
+        deintBody.Controls.Add(SmallHint("Görüntüye hiçbir filtre uygulanmaz. Kaynak taramalıysa bilgisayarda hareketli sahnelerde yatay çizgiler " +
+                                         "görünebilir; televizyonda genelde sorun olmaz."));
+        right.Controls.Add(deintBody);
         right.Controls.Add(SmallHint("Ses: AAC 160 kbps stereo (her cihazda oynar).", 0));
+        right.Controls.Add(SmallHint("Çözünürlük ve kare hızı kaynakla aynı kalır (kırpma/ölçekleme yok). Çok geçişli kodlama ve turbo analiz kapalı.", 0));
 
         grid.Controls.Add(left, 0, 0);
         grid.Controls.Add(right, 1, 0);
         AddSetup(grid);
-        var note = SmallHint("Çözünürlük ve kare hızı kaynakla aynı kalır (kırpma ve ölçekleme yok). Çok geçişli kodlama ve turbo analiz kapalı.", 0);
-        note.MaximumSize = Size.Empty;
-        note.Margin = new Padding(0, 4, 0, 6);
-        AddSetup(note);
 
+        // "ISO ile aynı klasöre" işaretliyken konum satırı gizli; işaret kaldırılınca aşağı doğru açılır
         AddSetup(chkNextToIso);
-        var folderRow = MainForm.Row(new FieldBox(txtFolder), btnBrowse);
-        folderRow.Margin = new Padding(0, 4, 0, 4);
-        AddSetup(folderRow);
+        folderRow = MainForm.Row(new FieldBox(txtFolder), btnBrowse);
+        folderRow.Margin = new Padding(22, 4, 0, 4);
+        Add(folderRow);
 
         Add(MainForm.Section("İLERLEME"));
         Add(progress);
@@ -186,8 +192,9 @@ sealed class Mp4Panel : Panel
         txtKbps.TextChanged += (_, _) => RefreshEstimate(); // sekmedeki değer o işe özel; varsayılan Ayarlar'da
         txtKbps.KeyPress += (_, e) => { if (!char.IsDigit(e.KeyChar) && !char.IsControl(e.KeyChar)) e.Handled = true; };
         cmbEncoder.SelectedIndexChanged += (_, _) => { UpdateEncoderHint(); SaveSettings(); };
-        rbDeintOn.CheckedChanged += (_, _) => SaveSettings();
-        chkNextToIso.CheckedChanged += (_, _) => { txtFolder.Enabled = btnBrowse.Enabled = !chkNextToIso.Checked; SaveSettings(); };
+        rbDeintOn.CheckedChanged += (_, _) => { UpdateDeintHeader(); SaveSettings(); };
+        btnDeint.Click += (_, _) => { deintBody.Visible = !deintBody.Visible; UpdateDeintHeader(); };
+        chkNextToIso.CheckedChanged += (_, _) => { UpdateFolderRow(); SaveSettings(); };
         txtFolder.TextChanged += (_, _) => SaveSettings();
         statsTimer.Tick += async (_, _) => await UpdateSystemAsync();
         VisibleChanged += (_, _) => { if (Visible || IsBusy) statsTimer.Start(); else statsTimer.Stop(); };
@@ -260,8 +267,9 @@ sealed class Mp4Panel : Panel
         rbDeintOff.Checked = !settings.Mp4Deinterlace;
         chkNextToIso.Checked = settings.Mp4NextToIso;
         txtFolder.Text = settings.Mp4Folder.Length > 0 ? settings.Mp4Folder : Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-        txtFolder.Enabled = btnBrowse.Enabled = !chkNextToIso.Checked;
         SetEncoders(["x264"]);
+        UpdateDeintHeader();
+        UpdateFolderRow();
         loading = false;
     }
 
@@ -290,8 +298,8 @@ sealed class Mp4Panel : Panel
     void UpdateEncoderHint()
     {
         string id = cmbEncoder.SelectedIndex >= 0 ? encoderIds[cmbEncoder.SelectedIndex] : "x264";
-        lblEncoderHint.Text = (Encoders.TryGetValue(id, out var e) ? e.Hint : "") +
-                              (HandBrake.IsInstalled ? "" : " Ekran kartı seçenekleri HandBrake indirildikten sonra görünür.");
+        tips.SetToolTip(cmbEncoder, (Encoders.TryGetValue(id, out var e) ? e.Hint : "") +
+                                    (HandBrake.IsInstalled ? "" : " Ekran kartı seçenekleri HandBrake indirildikten sonra görünür."));
     }
 
     /// <summary>HandBrake kuruluysa bu bilgisayardaki kodlayıcıları yükler (sekme ilk açıldığında).</summary>
@@ -510,7 +518,7 @@ sealed class Mp4Panel : Panel
         var settingsNow = new EncodeSettings(Kbps, encoderIds[Math.Max(0, cmbEncoder.SelectedIndex)], rbDeintOn.Checked);
         if (settingsNow.Encoder != "x264")
             Log("Not: Ekran kartı kodlamayı yapar; taramalı görüntü düzeltme (Decomb) ve ses işlemcide yapıldığı için işlemci de kullanılır. " +
-                "Görev Yöneticisi'nde ekran kartı yükü \"3D\" değil \"Video Encode\" grafiğinde görünür.");
+                "Görev Yöneticisi'nde ekran kartı yükü \"3D\" değil video grafiklerinde (Video Encode / Video Decode / Video Codec) görünür.");
         Log($"Dönüştürme başladı: {settingsNow.VideoKbps} kbps, {Encoders.GetValueOrDefault(settingsNow.Encoder).Name ?? settingsNow.Encoder}, " +
             $"deinterlace {(settingsNow.Deinterlace ? "açık" : "kapalı")}, ses AAC {HandBrake.AudioKbps} kbps.");
         var sw = Stopwatch.StartNew();
@@ -633,9 +641,16 @@ sealed class Mp4Panel : Panel
         item.Status = "Bitti";
     }
 
+    // Açılır başlık: seçili değeri ve açık/kapalı okunu gösterir
+    void UpdateDeintHeader() =>
+        btnDeint.Text = $"Taramalı görüntü düzeltme: {(rbDeintOn.Checked ? "Açık" : "Kapalı")}  {(deintBody.Visible ? "▴" : "▾")}";
+
+    void UpdateFolderRow() => folderRow.Visible = !chkNextToIso.Checked && !IsBusy;
+
     void SetBusy(bool busy)
     {
         foreach (var c in setupControls) c.Visible = !busy;
+        UpdateFolderRow();
         btnStart.Enabled = !busy;
         btnCancel.Enabled = busy;
         btnAddFiles.Enabled = btnAddFolder.Enabled = true; // sıra çalışırken de ISO eklenebilir

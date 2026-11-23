@@ -1,5 +1,10 @@
 # Sürüm notları
 
+## v1.6.1 — 2026-11-23
+- Düzeltme: Video CD ISO'larında film bulunamıyordu. Windows'un ISO oluşturucusu ISO9660 tarafında adları 8.3'e sıkıştırıyor (AVSEQ01.DAT → AVSEQ010); artık gerçek adlar Joliet'ten okunuyor ve MPEGAV/MPEG2 klasöründeki her dosya uzantıya bakılmadan alınıyor. Gerçek bir VCD ile uçtan uca doğrulandı
+- MP4 ekranı sadeleşti: bit hızı değeri etiketin yanında, kodlayıcı açıklaması ipucunda, taramalı görüntü düzeltme tıklayınca açılan bölümde; ses ve çözünürlük notu onun altında; "ISO ile aynı klasöre kaydet" işaretliyken konum satırı gizli. Günlük alanı belirgin şekilde büyüdü
+- Sistem bilgisinde ekran kartı video yükü tek değer olarak gösteriliyor (Intel kartlar kodlamayı çözme motorunda yapıyor)
+
 ## v1.6.0 — 2026-11-23
 - Video CD ISO'ları da MP4'e dönüştürülüyor: ISO içindeki MPEGAV\*.DAT (Super Video CD'de MPEG2\*.MPG) dosyaları bulunuyor, ham CD sektörlerinden düz MPEG akışı çıkarılıp HandBrake'e veriliyor; birden fazla video varsa en uzunu ana MP4, diğerleri ayrı MP4
 - Ayarlar → MP4 dönüştürme: varsayılan video bit hızı ve dört hazır bit hızı değiştirilebiliyor; MP4 sekmesi her açılışta varsayılanla başlıyor

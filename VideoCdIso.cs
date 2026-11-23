@@ -22,17 +22,27 @@ public static class VideoCdIso
     public static (string Kind, List<VcdStream> Streams)? Find(string isoPath)
     {
         using var fs = new FileStream(isoPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        var pvd = ReadAt(fs, 16L * Sector, Sector);
-        if (pvd.Length < Sector || pvd[0] != 1 || Encoding.ASCII.GetString(pvd, 1, 5) != "CD001") return null;
-        long rootLba = BitConverter.ToUInt32(pvd, 156 + 2), rootSize = BitConverter.ToUInt32(pvd, 156 + 10);
-        var root = ReadDir(fs, rootLba, rootSize);
+        // Dizin kökü: Joliet (gerçek dosya adları) varsa ondan, yoksa ISO9660'tan. Windows'un ISO oluşturucusu
+        // ISO9660 tarafında adları 8.3'e sıkıştırır (ör. AVSEQ01.DAT → "AVSEQ010", INFO.VCD → "INFO_VCD").
+        (long Lba, long Size, bool Joliet)? rootInfo = null;
+        for (int s = 16; s < 32; s++)
+        {
+            var vd = ReadAt(fs, (long)s * Sector, Sector);
+            if (vd.Length < Sector || Encoding.ASCII.GetString(vd, 1, 5) != "CD001" || vd[0] == 255) break;
+            bool joliet = vd[0] == 2 && vd[88] == '%' && vd[89] == '/' && vd[90] is (byte)'@' or (byte)'C' or (byte)'E';
+            if (vd[0] == 1 && rootInfo == null || joliet)
+                rootInfo = (BitConverter.ToUInt32(vd, 156 + 2), BitConverter.ToUInt32(vd, 156 + 10), joliet);
+        }
+        if (rootInfo is not { } r) return null;
+        var root = ReadDir(fs, r.Lba, r.Size, r.Joliet);
 
-        foreach (var (dirName, kind, ext) in new[] { ("MPEGAV", "Video CD", ".DAT"), ("MPEG2", "Super Video CD", ".MPG") })
+        foreach (var (dirName, kind) in new[] { ("MPEGAV", "Video CD"), ("MPEG2", "Super Video CD") })
         {
             var dir = root.FirstOrDefault(e => e.IsDir && e.Name.Equals(dirName, StringComparison.OrdinalIgnoreCase));
             if (dir == default) continue;
             var streams = new List<VcdStream>();
-            foreach (var f in ReadDir(fs, dir.Lba, dir.Size).Where(e => !e.IsDir && e.Name.EndsWith(ext, StringComparison.OrdinalIgnoreCase)).OrderBy(e => e.Name))
+            // Bu klasörlerde yalnız video dosyaları bulunur; adları bozulmuş olabileceği için uzantıya bakılmaz
+            foreach (var f in ReadDir(fs, dir.Lba, dir.Size, r.Joliet).Where(e => !e.IsDir).OrderBy(e => e.Name))
             {
                 var s = Describe(fs, $"{dirName}\\{f.Name}", f.Lba, f.Size, kind == "Video CD" ? 75 : 150);
                 if (s.Duration >= TimeSpan.FromSeconds(5)) streams.Add(s);
@@ -117,7 +127,7 @@ public static class VideoCdIso
         return buf;
     }
 
-    static List<(string Name, bool IsDir, long Lba, long Size)> ReadDir(FileStream fs, long lba, long size)
+    static List<(string Name, bool IsDir, long Lba, long Size)> ReadDir(FileStream fs, long lba, long size, bool joliet)
     {
         var list = new List<(string, bool, long, long)>();
         var data = ReadAt(fs, lba * Sector, (int)Math.Min(size, 1 << 20));
@@ -135,7 +145,9 @@ public static class VideoCdIso
             int nameLen = data[pos + 32];
             if (!(nameLen == 1 && data[pos + 33] <= 1)) // "." ve ".." kayıtları
             {
-                string name = Encoding.ASCII.GetString(data, pos + 33, nameLen);
+                // Joliet adları UCS-2 büyük-sonlu (big-endian) yazılır
+                string name = joliet ? Encoding.BigEndianUnicode.GetString(data, pos + 33, nameLen & ~1)
+                                     : Encoding.ASCII.GetString(data, pos + 33, nameLen);
                 int semi = name.IndexOf(';');
                 if (semi >= 0) name = name[..semi];
                 list.Add((name.TrimEnd('.'), isDir, extent, dataLen));

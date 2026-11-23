@@ -6,8 +6,10 @@ namespace MetroKafeDVD2ISO;
 
 /// <param name="CpuTempC">Windows'un bildirdiği ACPI (anakart) sıcaklığı; gerçek işlemci çekirdek sıcaklığı değildir.</param>
 /// <param name="GpuTempC">Yalnız NVIDIA kartlarda (nvidia-smi ile).</param>
+/// <param name="GpuVideo">Video motorlarının en yoğunu. Intel kartlar kodlamayı da çözme motorunda (VideoDecode/
+/// VideoProcessing) yapar, ayrı VideoEncode motoru yoktur; bu yüzden ekranda bu birleşik değer gösterilir.</param>
 public sealed record SystemSnapshot(double CpuPercent, double? CpuTempC, long RamUsed, long RamTotal,
-    double? Gpu3D, double? GpuEncode, double? GpuDecode, double? GpuTempC);
+    double? Gpu3D, double? GpuEncode, double? GpuDecode, double? GpuTempC, double? GpuVideo = null);
 
 /// <summary>
 /// Yönetici izni ve ek sürücü gerektirmeden okunabilen sistem bilgileri. İşlemci çekirdek sıcaklığı Windows
@@ -99,7 +101,7 @@ public sealed class SystemStats : IDisposable
         var mem = new MEMORYSTATUSEX { Length = (uint)Marshal.SizeOf<MEMORYSTATUSEX>() };
         GlobalMemoryStatusEx(ref mem);
 
-        double? g3d = null, genc = null, gdec = null, temp = null;
+        double? g3d = null, genc = null, gdec = null, gvideo = null, temp = null;
         if (query != IntPtr.Zero && PdhCollectQueryData(query) == 0)
         {
             var gpu = ReadArray(gpuCounter);
@@ -117,6 +119,7 @@ public sealed class SystemStats : IDisposable
                 g3d = Math.Min(100, Max("3D"));
                 genc = Math.Min(100, Max("VideoEncode"));
                 gdec = Math.Min(100, Max("VideoDecode"));
+                gvideo = Math.Min(100, new[] { genc, gdec, Max("VideoProcessing"), Max("VideoCodec") }.Max() ?? 0);
             }
             var thermal = ReadArray(thermalCounter);
             if (thermal.Count > 0)
@@ -127,7 +130,7 @@ public sealed class SystemStats : IDisposable
             }
         }
 
-        return new SystemSnapshot(cpu, temp, (long)(mem.TotalPhys - mem.AvailPhys), (long)mem.TotalPhys, g3d, genc, gdec, NvidiaTemperature());
+        return new SystemSnapshot(cpu, temp, (long)(mem.TotalPhys - mem.AvailPhys), (long)mem.TotalPhys, g3d, genc, gdec, NvidiaTemperature(), gvideo);
     }
 
     List<(string Name, double Value)> ReadArray(IntPtr counter)
@@ -188,7 +191,7 @@ public sealed class SystemStats : IDisposable
         string ram = $"RAM {Gb(s.RamUsed)} / {Gb(s.RamTotal)} GB";
         string gpu = s.Gpu3D == null
             ? "Ekran kartı: —"
-            : $"Ekran kartı: kodlama %{s.GpuEncode:0} · çözme %{s.GpuDecode:0} · 3D %{s.Gpu3D:0}" + (s.GpuTempC is { } gt ? $" · {gt:0} °C" : "");
+            : $"Ekran kartı: video kodlama/çözme %{s.GpuVideo:0} · 3D %{s.Gpu3D:0}" + (s.GpuTempC is { } gt ? $" · {gt:0} °C" : "");
         return $"{cpu}     {ram}     {gpu}";
     }
 
