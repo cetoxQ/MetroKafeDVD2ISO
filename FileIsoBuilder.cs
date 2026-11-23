@@ -75,13 +75,13 @@ public static class FileIsoBuilder
     /// <summary>1. adım: diskteki tüm dosyaları geçici klasöre kopyalar. Okunamayan sektör sayısını döndürür.</summary>
     static int CopyFiles(string root, string temp, bool skipUnreadable, IProgress<CopyProgress> progress, CancellationToken ct)
     {
-        progress.Report(new CopyProgress(CopyPhase.Reading, 0, 0, 0, "Diskteki dosyalar listeleniyor…"));
+        progress.Report(new CopyProgress(CopyPhase.Reading, 0, 0, 0, L.T("Diskteki dosyalar listeleniyor…")));
         var options = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = 0, IgnoreInaccessible = true };
         var dirs = Directory.EnumerateDirectories(root, "*", options).ToList();
         var files = Directory.EnumerateFiles(root, "*", options).Select(f => new FileInfo(f)).ToList();
         long total = Math.Max(1, files.Sum(f => f.Length));
         progress.Report(new CopyProgress(CopyPhase.Reading, 0, total, 0,
-            $"{files.Count:N0} dosya ({total / (1024.0 * 1024):0.#} MB) geçici klasöre kopyalanıyor; ardından ISO oluşturulacak."));
+            L.F("{0:N0} dosya ({1:0.#} MB) geçici klasöre kopyalanıyor; ardından ISO oluşturulacak.", files.Count, total / (1024.0 * 1024))));
 
         foreach (var d in dirs) Directory.CreateDirectory(Path.Combine(temp, Path.GetRelativePath(root, d)));
 
@@ -114,7 +114,7 @@ public static class FileIsoBuilder
                     catch (IOException ex)
                     {
                         if (!skipUnreadable)
-                            throw new IOException($"\"{rel}\" dosyası okunamadı ({ex.Message}). Disk çizik veya hasarlı olabilir.", ex);
+                            throw new IOException(L.F("\"{0}\" dosyası okunamadı ({1}). Disk çizik veya hasarlı olabilir.", rel, ex.Message), ex);
                         unreadable += want;
                         pos += want;
                         done += want;
@@ -144,7 +144,7 @@ public static class FileIsoBuilder
                 int sectors = (int)((unreadable + 2047) / 2048);
                 bad += sectors;
                 progress.Report(new CopyProgress(CopyPhase.Reading, done, total, bad,
-                    $"\"{rel}\": {unreadable / 1024:N0} KB okunamadı, sıfırla dolduruldu (dosya bozuk olabilir)."));
+                    L.F("\"{0}\": {1:N0} KB okunamadı, sıfırla dolduruldu (dosya bozuk olabilir).", rel, unreadable / 1024)));
             }
         }
         progress.Report(new CopyProgress(CopyPhase.Reading, total, total, bad));
@@ -156,7 +156,7 @@ public static class FileIsoBuilder
         IProgress<CopyProgress> progress, CancellationToken ct)
     {
         var type = Type.GetTypeFromProgID("IMAPI2FS.MsftFileSystemImage")
-                   ?? throw new IOException("Windows'un ISO bileşeni (IMAPI2FS) bulunamadı.");
+                   ?? throw new IOException(L.T("Windows'un ISO bileşeni (IMAPI2FS) bulunamadı."));
         dynamic fsi = Activator.CreateInstance(type)!;
         object? root = null, result = null, stream = null;
         try
@@ -165,7 +165,7 @@ public static class FileIsoBuilder
             fsi.FileSystemsToCreate = FsIso9660 | FsJoliet | FsUdf;  // UDF: 4 GB'tan büyük dosyalar için
             try { fsi.VolumeName = SanitizeLabel(volumeLabel); } catch { fsi.VolumeName = "DISC"; }
 
-            progress.Report(new CopyProgress(CopyPhase.Building, 0, 0, 0, "ISO oluşturuluyor…"));
+            progress.Report(new CopyProgress(CopyPhase.Building, 0, 0, 0, L.T("ISO oluşturuluyor…")));
             root = fsi.Root;
             ((dynamic)root).AddTree(folder, false);
             ct.ThrowIfCancellationRequested();
@@ -216,7 +216,7 @@ public static class FileIsoBuilder
         }
         catch (COMException ex)
         {
-            throw new IOException("ISO oluşturulamadı: " + ex.Message, ex);
+            throw new IOException(L.F("ISO oluşturulamadı: {0}", ex.Message), ex);
         }
         finally
         {

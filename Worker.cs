@@ -158,12 +158,12 @@ public static class Worker
                 {
                     Type = "info",
                     Message = videoCd != null
-                        ? $"{videoCd} algılandı. Görüntü, ISO sektörlerine sığmayan özel sektörlerde (Mode 2 Form 2) durduğu için " +
-                          "sektör sektör kopyalanamaz; ISO diskteki dosyalardan oluşturuluyor."
-                        : "Dosya tabanlı yöntem: ISO diskteki dosyalardan oluşturuluyor.",
+                        ? L.F("{0} algılandı. Görüntü, ISO sektörlerine sığmayan özel sektörlerde (Mode 2 Form 2) durduğu için " +
+                              "sektör sektör kopyalanamaz; ISO diskteki dosyalardan oluşturuluyor.", videoCd)
+                        : L.T("Dosya tabanlı yöntem: ISO diskteki dosyalardan oluşturuluyor."),
                 });
                 if (opt.Verify)
-                    send(new WorkerMessage { Type = "info", Message = "Dosya tabanlı yöntemde diskle sektör karşılaştırması yapılamaz; yalnız SHA-256 hesaplanacak." });
+                    send(new WorkerMessage { Type = "info", Message = L.T("Dosya tabanlı yöntemde diskle sektör karşılaştırması yapılamaz; yalnız SHA-256 hesaplanacak.") });
                 string label = "";
                 try { label = new DriveInfo(drive.ToString()).VolumeLabel; } catch { }
                 var fr = FileIsoBuilder.Build(root, label, output, opt.Verify, opt.SkipBadSectors, progress, cts.Token);
@@ -178,8 +178,9 @@ public static class Worker
                 send(new WorkerMessage
                 {
                     Type = "info",
-                    Message = $"Dosya sistemi {dev.Size / DiscCopier.SectorSize:N0}. sektörde bitiyor; ardındaki " +
-                              $"{dev.TailLength / DiscCopier.SectorSize:N0} sektör en sonda denenecek, okunamazsa hata sayılmayacak.",
+                    Message = L.F("Dosya sistemi {0:N0}. sektörde bitiyor; ardındaki " +
+                                  "{1:N0} sektör en sonda denenecek, okunamazsa hata sayılmayacak.",
+                                  dev.Size / DiscCopier.SectorSize, dev.TailLength / DiscCopier.SectorSize),
                 });
 
             var r = new DiscCopier(dev, opt, progress, cts.Token).Run(output);
@@ -230,7 +231,7 @@ public static class WorkerHost
             StandardOutputEncoding = new UTF8Encoding(false),
         };
         foreach (var a in args) psi.ArgumentList.Add(a);
-        return Process.Start(psi) ?? throw new InvalidOperationException("Yardımcı işlem başlatılamadı.");
+        return Process.Start(psi) ?? throw new InvalidOperationException(L.T("Yardımcı işlem başlatılamadı."));
     }
 
     static void TryKill(Process p)
@@ -303,6 +304,6 @@ public static class WorkerHost
             return new CopyResult(result.Done, result.Bad, TimeSpan.FromMilliseconds(result.ElapsedMs),
                 result.Sha256, result.Mismatches, result.Unreadable);
         if (result?.Cancelled == true || ct.IsCancellationRequested) throw new OperationCanceledException(ct);
-        throw new IOException(result?.Message ?? "Okuma işlemi beklenmedik şekilde sonlandı.");
+        throw new IOException(result?.Message ?? L.T("Okuma işlemi beklenmedik şekilde sonlandı."));
     }
 }

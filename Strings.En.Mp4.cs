@@ -1,0 +1,163 @@
+namespace MetroKafeDVD2ISO;
+
+static partial class L
+{
+    static readonly (string Tr, string En)[] EnMp4 =
+    [
+        // ── Mp4Panel: kodlayıcılar ──
+        ("İşlemci (x264) — en iyi kalite", "CPU (x264) — best quality"),
+        ("Aynı bit hızında en iyi görüntü kalitesi. Süre işlemciye bağlıdır; genelde videonun süresi kadar ya da daha kısa.",
+            "Best picture quality at a given bitrate. Speed depends on the CPU; usually about as long as the video, or shorter."),
+        ("NVIDIA ekran kartı (NVENC) — çok hızlı", "NVIDIA GPU (NVENC) — very fast"),
+        ("Intel ekran kartı (Quick Sync) — çok hızlı", "Intel GPU (Quick Sync) — very fast"),
+        ("AMD ekran kartı (VCE) — çok hızlı", "AMD GPU (VCE) — very fast"),
+        ("3–10 kat hızlı. Aynı bit hızında kalite biraz düşer; gerekirse bit hızını biraz artırın.",
+            "3–10× faster. Quality is slightly lower at the same bitrate; raise the bitrate a little if needed."),
+        ("Ekran kartı seçenekleri HandBrake indirildikten sonra görünür.", "GPU options appear after HandBrake is downloaded."),
+
+        // ── Mp4Panel: düğmeler, etiketler ──
+        ("ISO ekle…", "Add ISO…"),
+        ("Klasör ekle…", "Add folder…"),
+        ("Seçileni kaldır", "Remove selected"),
+        ("Listeyi temizle", "Clear list"),
+        ("Açık — taramalı kareleri düzelt (Decomb)", "On — fix interlaced frames (Decomb)"),
+        ("Kapalı — görüntüye dokunma", "Off — leave the picture untouched"),
+        ("MP4'ü ISO ile aynı klasöre kaydet", "Save the MP4 in the same folder as the ISO"),
+        ("Gözat…", "Browse…"),
+        ("Hazır.", "Ready."),
+        ("Sistem bilgisi okunuyor…", "Reading system info…"),
+        ("Sistem bilgisi okunamadı.", "Could not read system info."),
+        ("Dönüştürmeyi başlat", "Start conversion"),
+        ("İptal", "Cancel"),
+        ("İptal ediliyor…", "Cancelling…"),
+        ("ISO DOSYALARI", "ISO FILES"),
+        ("DÖNÜŞTÜRME AYARLARI", "CONVERSION SETTINGS"),
+        ("İLERLEME", "PROGRESS"),
+        ("Bit hızı tabloda her ISO için ayrı girilir. Seçili satırlara uygula:", "Bitrate is set per ISO in the table. Apply to selected rows:"),
+        ("Kodlayıcı:", "Encoder:"),
+        ("Düğün kameralarının çoğu taramalı (interlaced) kayıt yapar. Yalnız taramalı kareler düzeltilir; " +
+         "bilgisayarda ve telefonda hareketli sahnelerde tarak gibi çizgiler görünmez. Kare hızı kaynakla aynı kalır.",
+            "Most wedding camcorders record interlaced video. Only interlaced frames are fixed, so no comb-like lines " +
+            "appear in moving scenes on computers and phones. The frame rate stays the same as the source."),
+        ("Görüntüye hiçbir filtre uygulanmaz. Kaynak taramalıysa bilgisayarda hareketli sahnelerde yatay çizgiler " +
+         "görünebilir; televizyonda genelde sorun olmaz.",
+            "No filter is applied to the picture. If the source is interlaced, horizontal lines may show in moving scenes " +
+            "on a computer; on a TV this is usually fine."),
+        ("Ses: AAC 160 kbps stereo (her cihazda oynar).", "Audio: AAC 160 kbps stereo (plays on any device)."),
+        ("Çözünürlük ve kare hızı kaynakla aynı kalır (kırpma/ölçekleme yok). Çok geçişli kodlama ve turbo analiz kapalı.",
+            "Resolution and frame rate stay the same as the source (no cropping/scaling). Multi-pass encoding and turbo analysis are off."),
+        ("Taramalı görüntü düzeltme: {0}  {1}", "Deinterlacing: {0}  {1}"),
+        ("Açık", "On"),
+        ("Kapalı", "Off"),
+
+        // ── Mp4Panel: tablo ──
+        ("ISO dosyası", "ISO file"),
+        ("Boyut", "Size"),
+        ("Başlık · süre", "Titles · length"),
+        ("Bit hızı (kbps)", "Bitrate (kbps)"),
+        ("Tıklayıp bu ISO için bit hızını yazın", "Click to enter the bitrate for this ISO"),
+        ("Tahmini MP4", "Est. MP4"),
+        ("Durum", "Status"),
+        ("{0} başlık · {1:h\\:mm\\:ss}", "{0} title(s) · {1:h\\:mm\\:ss}"),
+        ("video bulunamadı", "no video found"),
+        ("(oto)", "(auto)"),
+        ("Otomatik", "Auto"),
+        ("MP4 yaklaşık ISO boyutunda çıkacak şekilde (100'ün katı)", "So the MP4 comes out about the size of the ISO (multiple of 100)"),
+        ("Toplam MP4 ≈ —", "Total MP4 ≈ —"),
+        ("Toplam MP4 ≈ {0}  (ISO'lar {1})", "Total MP4 ≈ {0}  (ISOs {1})"),
+
+        // ── Mp4Panel: durumlar ──
+        ("Bekliyor", "Waiting"),
+        ("Bekliyor (HandBrake gerekli)", "Waiting (needs HandBrake)"),
+        ("Taranıyor…", "Scanning…"),
+        ("Taranamadı", "Scan failed"),
+        ("Video yok", "No video"),
+        ("Hata", "Error"),
+        ("Bitti", "Done"),
+        ("Çıkarılıyor %{0:0}", "Extracting {0:0}%"),
+        ("%{0:0}", "{0:0}%"),
+
+        // ── Mp4Panel: iletişim kutuları ──
+        ("MP4 dosyalarının kaydedileceği klasörü seçin", "Select the folder to save MP4 files in"),
+        ("ISO kalıbı (*.iso)|*.iso", "ISO image (*.iso)|*.iso"),
+        ("Dönüştürülecek ISO dosyalarını seçin", "Select the ISO files to convert"),
+        ("İçindeki tüm ISO dosyaları eklenecek klasörü seçin", "Select a folder; all ISO files in it will be added"),
+        ("MP4 dönüştürme için HandBrakeCLI gerekiyor (ücretsiz, açık kaynak, yaklaşık 25 MB).\n\n" +
+         "HandBrake'in resmi GitHub sayfasından indirilip programın klasöründeki \"tools\" altına kaydedilecek. İndirilsin mi?",
+            "MP4 conversion needs HandBrakeCLI (free, open source, about 25 MB).\n\n" +
+            "It will be downloaded from HandBrake's official GitHub page and saved under \"tools\" in the program folder. Download it?"),
+        ("Kayıt klasörü bulunamadı.", "Output folder not found."),
+
+        // ── Mp4Panel: günlük ve durum satırı ──
+        ("{0}: bit hızı {1} kbps (MP4 ≈ {2}).", "{0}: bitrate {1} kbps (MP4 ≈ {2})."),
+        ("Ekran kartları: {0}", "GPUs: {0}"),
+        ("bulunamadı", "none found"),
+        ("HandBrake'in bu bilgisayarda kullanabildiği kodlayıcılar: {0}", "Encoders HandBrake can use on this PC: {0}"),
+        ("NVIDIA kart var ama HandBrake NVENC'i kullanamıyor: ekran kartı sürücüsünü güncelleyin (çok eski kartlarda NVENC yoktur).",
+            "An NVIDIA GPU is present but HandBrake can't use NVENC: update the graphics driver (very old cards have no NVENC)."),
+        ("AMD kart var ama HandBrake kullanamıyor: AMD Adrenalin sürücüsünü güncelleyin.",
+            "An AMD GPU is present but HandBrake can't use it: update the AMD Adrenalin driver."),
+        ("Intel ekran kartı var ama Quick Sync kullanılamıyor: Intel grafik sürücüsünü güncelleyin; BIOS'ta dahili grafik kapalı olabilir.",
+            "An Intel GPU is present but Quick Sync is unavailable: update the Intel graphics driver; integrated graphics may be disabled in the BIOS."),
+        ("Kodlayıcılar okunamadı: {0}", "Could not read encoders: {0}"),
+        ("Klasörde ISO dosyası bulunamadı: {0}", "No ISO files found in folder: {0}"),
+        ("Listeye eklendi: {0}", "Added to list: {0}"),
+        ("{0}: {1} video dosyası ({2}).", "{0}: {1} video file(s) ({2})."),
+        ("Video CD görüntüsü düşük çözünürlüklüdür (352×288); 1000–1500 kbps yeterlidir, daha yüksek bit hızı kaliteyi artırmaz, yalnız dosyayı büyütür.",
+            "Video CD picture is low resolution (352×288); 1000–1500 kbps is enough. A higher bitrate won't improve quality, it only makes the file bigger."),
+        ("{0}: dönüştürülecek video bulunamadı (ISO'da ne DVD VIDEO_TS ne de Video CD MPEGAV/MPEG2 klasörü var).",
+            "{0}: no video to convert (the ISO has neither a DVD VIDEO_TS nor a Video CD MPEGAV/MPEG2 folder)."),
+        ("{0}: ISO {1} → otomatik bit hızı {2} kbps (MP4 ≈ {3}). Değiştirmek için tablodaki bit hızına tıklayın.",
+            "{0}: ISO {1} → auto bitrate {2} kbps (MP4 ≈ {3}). Click the bitrate in the table to change it."),
+        ("HandBrake {0} indirildi: {1}", "HandBrake {0} downloaded: {1}"),
+        ("HandBrake indirilemedi.", "Could not download HandBrake."),
+        ("HandBrake indirilemedi: {0}", "Could not download HandBrake: {0}"),
+        ("Listede dönüştürülecek ISO yok. \"ISO ekle…\" ile ekleyin.", "No ISOs to convert in the list. Add some with \"Add ISO…\"."),
+        ("Not: Ekran kartı kodlamayı yapar; taramalı görüntü düzeltme (Decomb) ve ses işlemcide yapıldığı için işlemci de kullanılır. " +
+         "Görev Yöneticisi'nde ekran kartı yükü \"3D\" değil video grafiklerinde (Video Encode / Video Decode / Video Codec) görünür.",
+            "Note: the GPU does the encoding; deinterlacing (Decomb) and audio run on the CPU, so the CPU is used too. " +
+            "In Task Manager, GPU load shows under the video graphs (Video Encode / Video Decode / Video Codec), not \"3D\"."),
+        ("Dönüştürme başladı: {0}, deinterlace {1}, ses AAC {2} kbps.", "Conversion started: {0}, deinterlace {1}, audio AAC {2} kbps."),
+        ("açık", "on"),
+        ("kapalı", "off"),
+        ("Bitti — {0} ISO dönüştürüldü", "Done — {0} ISO(s) converted"),
+        (", {0} ISO'da hata (ayrıntı günlükte)", ", {0} failed (see log)"),
+        (", süre {0:hh\\:mm\\:ss}.", ", time {0:hh\\:mm\\:ss}."),
+        ("İptal edildi.", "Cancelled."),
+        ("Dönüştürme iptal edildi; yarım kalan MP4 silindi.", "Conversion cancelled; the partial MP4 was deleted."),
+        ("başlık {0}", "title {0}"),
+        ("ISO {0}/{1} · {2} · {3} çıkarılıyor… %{4:0}", "ISO {0}/{1} · {2} · extracting {3}… {4:0}%"),
+        (" · başlık {0}/{1}", " · title {0}/{1}"),
+        (" · %{0:0.0}", " · {0:0.0}%"),
+        (" · kalan {0:hh\\:mm\\:ss}", " · {0:hh\\:mm\\:ss} left"),
+        ("{0}: {1} tamam — {2}, süre {3:hh\\:mm\\:ss}.", "{0}: {1} done — {2}, time {3:hh\\:mm\\:ss}."),
+
+        // ── HandBrake ──
+        ("başlık {0}: {1:h\\:mm\\:ss}", "title {0}: {1:h\\:mm\\:ss}"),
+        (", {0} bölüm", ", {0} chapters"),
+        (", taramalı", ", interlaced"),
+        ("HandBrake sürüm bilgisi alınıyor…", "Getting HandBrake version info…"),
+        ("HandBrake sürümünde Windows komut satırı paketi bulunamadı.", "No Windows command-line package found in the HandBrake release."),
+        ("HandBrake {0} indiriliyor… %{1}", "Downloading HandBrake {0}… {1}%"),
+        ("HandBrake kuruluyor…", "Installing HandBrake…"),
+        ("İndirilen pakette HandBrakeCLI.exe yok.", "The downloaded package has no HandBrakeCLI.exe."),
+        ("HandBrake ISO'yu tarayamadı. {0}", "HandBrake could not scan the ISO. {0}"),
+        ("Dönüştürülecek video başlığı bulunamadı.", "No video title to convert was found."),
+        ("Tüm başlıklar 1 dakikadan kısa; yalnız en uzunu dönüştürülecek.", "All titles are shorter than 1 minute; only the longest will be converted."),
+        ("Ana başlık diğer {0} başlığın tamamını içeriyor (\"hepsini oynat\"); yalnız ana başlık dönüştürülecek.",
+            "The main title contains all {0} other titles (\"play all\"); only the main title will be converted."),
+        ("Tek video başlığı.", "Single video title."),
+        ("Ana başlık {0} + {1} ayrı başlık ({2}).", "Main title {0} + {1} separate title(s) ({2})."),
+        ("HandBrake başlatılamadı.", "Could not start HandBrake."),
+        ("HandBrake kodlayıcı: {0}", "HandBrake encoder: {0}"),
+        ("HandBrake kod çözücü: {0}", "HandBrake decoder: {0}"),
+        ("HandBrake dönüştürmeyi tamamlayamadı (çıkış kodu {0}).", "HandBrake could not finish the conversion (exit code {0})."),
+        ("Ekran kartı kodlayıcısı yerine \"İşlemci (x264)\" seçip tekrar deneyin.", "Select \"CPU (x264)\" instead of the GPU encoder and try again."),
+
+        // ── SystemStats ──
+        ("İşlemci %{0:0}", "CPU {0:0}%"),
+        (" · {0:0} °C (anakart)", " · {0:0} °C (motherboard)"),
+        ("Ekran kartı: —", "GPU: —"),
+        ("Ekran kartı: video kodlama/çözme %{0:0} · 3D %{1:0}", "GPU: video encode/decode {0:0}% · 3D {1:0}%"),
+    ];
+}

@@ -66,8 +66,8 @@ public static class UpdateChecker
     /// </summary>
     public static async Task DownloadAndInstallAsync(ReleaseInfo release, IProgress<double> progress, CancellationToken ct = default)
     {
-        if (release.DownloadUrl == null) throw new InvalidOperationException("Bu sürümde indirilebilir exe yok.");
-        string exe = Environment.ProcessPath ?? throw new InvalidOperationException("Uygulama yolu bulunamadı.");
+        if (release.DownloadUrl == null) throw new InvalidOperationException(L.T("Bu sürümde indirilebilir exe yok."));
+        string exe = Environment.ProcessPath ?? throw new InvalidOperationException(L.T("Uygulama yolu bulunamadı."));
         string dir = Path.GetDirectoryName(exe)!;
         string newExe = Path.Combine(dir, Path.GetFileNameWithoutExtension(exe) + ".new.exe");
 
@@ -91,7 +91,7 @@ public static class UpdateChecker
         }
         catch (UnauthorizedAccessException)
         {
-            throw new IOException($"\"{dir}\" klasörüne yazılamıyor. Uygulamayı yazılabilir bir klasöre (ör. Masaüstü) taşıyıp tekrar deneyin.");
+            throw new IOException(L.F("\"{0}\" klasörüne yazılamıyor. Uygulamayı yazılabilir bir klasöre (ör. Masaüstü) taşıyıp tekrar deneyin.", dir));
         }
         catch
         {

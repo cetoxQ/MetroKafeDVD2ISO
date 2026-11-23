@@ -10,7 +10,7 @@
     <AssemblyName>MetroKafeDVD2ISO</AssemblyName>
     <RootNamespace>MetroKafeDVD2ISO</RootNamespace>
     <Product>MetroKafe DVD2ISO</Product>
-    <Version>1.7.0</Version>
+    <Version>1.8.0</Version>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Arayüz kodla kuruluyor, Designer serileştirmesi kullanılmıyor -->
@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="CHANGELOG.md" LogicalName="CHANGELOG.md" />
+    <EmbeddedResource Include="CHANGELOG.en.md" LogicalName="CHANGELOG.en.md" WithCulture="false" />
   </ItemGroup>
 
   <!-- Tek dosya, .NET kurulumu gerektirmeyen exe -->

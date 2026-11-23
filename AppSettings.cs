@@ -50,6 +50,8 @@ public sealed class AppSettings
     public bool EjectWhenDone { get; set; }
     public bool OpenFolderWhenDone { get; set; } = true;
     public bool AutoCheckUpdates { get; set; } = true;
+    /// <summary>"tr" / "en"; boşsa Windows diline göre seçilir.</summary>
+    public string Language { get; set; } = "";
     public string NamePreset { get; set; } = "Label";
     public CopyMethod CopyMethod { get; set; } = CopyMethod.Auto;
 

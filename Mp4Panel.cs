@@ -9,7 +9,7 @@ sealed class Mp4Item(string path)
     public List<HbTitle> Titles { get; set; } = [];
     /// <summary>Video CD ISO'sunda Titles ile aynı sırada çıkarılacak video dosyaları; DVD'de null.</summary>
     public List<VcdStream>? VcdStreams { get; set; }
-    public string Status { get; set; } = "Bekliyor";
+    public string Status { get; set; } = L.T("Bekliyor");
     public bool Scanned, Done, Failed;
     /// <summary>ISO dosyasının boyutu (bayt).</summary>
     public long IsoBytes { get; } = File.Exists(path) ? new FileInfo(path).Length : 0;
@@ -58,10 +58,10 @@ sealed class Mp4Panel : Panel
         ScrollBars = ScrollBars.Vertical, AllowDrop = true, ShowCellToolTips = true,
     };
     DataGridViewTextBoxColumn colName = null!, colSize = null!, colInfo = null!, colKbps = null!, colEstimate = null!, colStatus = null!;
-    readonly FlatButton btnAddFiles = new() { Text = "ISO ekle…", Margin = new Padding(0, 0, 8, 0) };
-    readonly FlatButton btnAddFolder = new() { Text = "Klasör ekle…", Margin = new Padding(0, 0, 8, 0) };
-    readonly FlatButton btnRemove = new() { Text = "Seçileni kaldır", Margin = new Padding(0, 0, 8, 0) };
-    readonly FlatButton btnClear = new() { Text = "Listeyi temizle" };
+    readonly FlatButton btnAddFiles = new() { Text = L.T("ISO ekle…"), Margin = new Padding(0, 0, 8, 0) };
+    readonly FlatButton btnAddFolder = new() { Text = L.T("Klasör ekle…"), Margin = new Padding(0, 0, 8, 0) };
+    readonly FlatButton btnRemove = new() { Text = L.T("Seçileni kaldır"), Margin = new Padding(0, 0, 8, 0) };
+    readonly FlatButton btnClear = new() { Text = L.T("Listeyi temizle") };
     readonly FlowLayoutPanel presetRow = new() { AutoSize = true, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
     readonly Label lblEstimate = new() { AutoSize = true, ForeColor = Theme.Text, Margin = new Padding(0, 6, 0, 8) };
     readonly DropDown cmbEncoder = new() { PreferredWidth = 330, Anchor = AnchorStyles.Left, Margin = new Padding(0) };
@@ -69,19 +69,19 @@ sealed class Mp4Panel : Panel
     readonly FlowLayoutPanel deintBody = new() { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Visible = false, Margin = new Padding(0) };
     TableLayoutPanel folderRow = null!;
     readonly ToolTip tips = new() { InitialDelay = 300, AutoPopDelay = 15000 };
-    readonly RadioButton rbDeintOn = DarkRadio("Açık — taramalı kareleri düzelt (Decomb)");
-    readonly RadioButton rbDeintOff = DarkRadio("Kapalı — görüntüye dokunma");
-    readonly CheckBox chkNextToIso = MainForm.DarkCheck("MP4'ü ISO ile aynı klasöre kaydet");
+    readonly RadioButton rbDeintOn = DarkRadio(L.T("Açık — taramalı kareleri düzelt (Decomb)"));
+    readonly RadioButton rbDeintOff = DarkRadio(L.T("Kapalı — görüntüye dokunma"));
+    readonly CheckBox chkNextToIso = MainForm.DarkCheck(L.T("MP4'ü ISO ile aynı klasöre kaydet"));
     readonly TextBox txtFolder = FieldBox.NewTextBox();
-    readonly FlatButton btnBrowse = new() { Text = "Gözat…", Anchor = AnchorStyles.Left };
+    readonly FlatButton btnBrowse = new() { Text = L.T("Gözat…"), Anchor = AnchorStyles.Left };
     readonly ModernProgress progress = new() { Dock = DockStyle.Top, Margin = new Padding(0, 6, 0, 6) };
-    readonly Label lblStatus = new() { AutoSize = false, AutoEllipsis = true, Height = 22, ForeColor = Theme.TextDim, Text = "Hazır." };
-    readonly Label lblSystem = new() { AutoSize = false, AutoEllipsis = true, Height = 22, ForeColor = Theme.Text, Text = "Sistem bilgisi okunuyor…" };
+    readonly Label lblStatus = new() { AutoSize = false, AutoEllipsis = true, Height = 22, ForeColor = Theme.TextDim, Text = L.T("Hazır.") };
+    readonly Label lblSystem = new() { AutoSize = false, AutoEllipsis = true, Height = 22, ForeColor = Theme.Text, Text = L.T("Sistem bilgisi okunuyor…") };
     readonly System.Windows.Forms.Timer statsTimer = new() { Interval = 1000 };
     SystemStats? stats;
     bool sampling;
-    readonly FlatButton btnStart = new() { Text = "Dönüştürmeyi başlat", Style = FlatButton.Kind.Primary, Padding = new Padding(22, 9, 22, 9) };
-    readonly FlatButton btnCancel = new() { Text = "İptal", Padding = new Padding(22, 9, 22, 9), Enabled = false, Margin = new Padding(0, 0, 8, 0) };
+    readonly FlatButton btnStart = new() { Text = L.T("Dönüştürmeyi başlat"), Style = FlatButton.Kind.Primary, Padding = new Padding(22, 9, 22, 9) };
+    readonly FlatButton btnCancel = new() { Text = L.T("İptal"), Padding = new Padding(22, 9, 22, 9), Enabled = false, Margin = new Padding(0, 0, 8, 0) };
     readonly ListBox lstLog = new() { Dock = DockStyle.Fill, IntegralHeight = false, HorizontalScrollbar = true, BorderStyle = BorderStyle.None, BackColor = Theme.Surface, ForeColor = Theme.TextDim };
 
     public bool IsBusy => cts != null;
@@ -126,7 +126,7 @@ sealed class Mp4Panel : Panel
         void Add(Control c) { if (c.Dock == DockStyle.None) c.Dock = DockStyle.Top; root.Controls.Add(c); root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); }
         void AddSetup(Control c) { Add(c); setupControls.Add(c); }
 
-        Add(MainForm.Section("ISO DOSYALARI"));
+        Add(MainForm.Section(L.T("ISO DOSYALARI")));
         BuildGrid();
         var listBox = new Panel { Dock = DockStyle.Top, Height = 132, BackColor = Theme.Surface, Padding = new Padding(6, 4, 4, 4), Margin = new Padding(0, 0, 0, 8) };
         listBox.Controls.Add(grid);
@@ -135,7 +135,7 @@ sealed class Mp4Panel : Panel
         listButtons.Controls.AddRange([btnAddFiles, btnAddFolder, btnRemove, btnClear]);
         Add(listButtons);
 
-        AddSetup(MainForm.Section("DÖNÜŞTÜRME AYARLARI"));
+        AddSetup(MainForm.Section(L.T("DÖNÜŞTÜRME AYARLARI")));
         var settingsGrid = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 2, Margin = new Padding(0) };
         settingsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         settingsGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
@@ -144,13 +144,13 @@ sealed class Mp4Panel : Panel
 
         // Sol: bit hızı düğmeleri (seçili satırlara), toplam tahmini boyut, kodlayıcı (açıklaması ipucunda)
         var left = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Fill, Margin = new Padding(0, 0, 12, 0) };
-        left.Controls.Add(Inline("Bit hızı tabloda her ISO için ayrı girilir. Seçili satırlara uygula:", 0));
+        left.Controls.Add(Inline(L.T("Bit hızı tabloda her ISO için ayrı girilir. Seçili satırlara uygula:"), 0));
         BuildPresetChips();
         left.Controls.Add(presetRow);
         lblEstimate.Font = new Font("Segoe UI Semibold", 9.5f);
         left.Controls.Add(lblEstimate);
         var encRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
-        encRow.Controls.Add(Inline("Kodlayıcı:", 8));
+        encRow.Controls.Add(Inline(L.T("Kodlayıcı:"), 8));
         cmbEncoder.PreferredWidth = 280;
         encRow.Controls.Add(cmbEncoder);
         left.Controls.Add(encRow);
@@ -159,14 +159,14 @@ sealed class Mp4Panel : Panel
         var right = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Fill, Margin = new Padding(0) };
         right.Controls.Add(btnDeint);
         deintBody.Controls.Add(rbDeintOn);
-        deintBody.Controls.Add(SmallHint("Düğün kameralarının çoğu taramalı (interlaced) kayıt yapar. Yalnız taramalı kareler düzeltilir; " +
-                                         "bilgisayarda ve telefonda hareketli sahnelerde tarak gibi çizgiler görünmez. Kare hızı kaynakla aynı kalır."));
+        deintBody.Controls.Add(SmallHint(L.T("Düğün kameralarının çoğu taramalı (interlaced) kayıt yapar. Yalnız taramalı kareler düzeltilir; " +
+                                         "bilgisayarda ve telefonda hareketli sahnelerde tarak gibi çizgiler görünmez. Kare hızı kaynakla aynı kalır.")));
         deintBody.Controls.Add(rbDeintOff);
-        deintBody.Controls.Add(SmallHint("Görüntüye hiçbir filtre uygulanmaz. Kaynak taramalıysa bilgisayarda hareketli sahnelerde yatay çizgiler " +
-                                         "görünebilir; televizyonda genelde sorun olmaz."));
+        deintBody.Controls.Add(SmallHint(L.T("Görüntüye hiçbir filtre uygulanmaz. Kaynak taramalıysa bilgisayarda hareketli sahnelerde yatay çizgiler " +
+                                         "görünebilir; televizyonda genelde sorun olmaz.")));
         right.Controls.Add(deintBody);
-        right.Controls.Add(SmallHint("Ses: AAC 160 kbps stereo (her cihazda oynar).", 0));
-        right.Controls.Add(SmallHint("Çözünürlük ve kare hızı kaynakla aynı kalır (kırpma/ölçekleme yok). Çok geçişli kodlama ve turbo analiz kapalı.", 0));
+        right.Controls.Add(SmallHint(L.T("Ses: AAC 160 kbps stereo (her cihazda oynar)."), 0));
+        right.Controls.Add(SmallHint(L.T("Çözünürlük ve kare hızı kaynakla aynı kalır (kırpma/ölçekleme yok). Çok geçişli kodlama ve turbo analiz kapalı."), 0));
 
         settingsGrid.Controls.Add(left, 0, 0);
         settingsGrid.Controls.Add(right, 1, 0);
@@ -178,7 +178,7 @@ sealed class Mp4Panel : Panel
         folderRow.Margin = new Padding(22, 4, 0, 4);
         Add(folderRow);
 
-        Add(MainForm.Section("İLERLEME"));
+        Add(MainForm.Section(L.T("İLERLEME")));
         Add(progress);
         Add(lblStatus);
         Add(lblSystem);
@@ -199,7 +199,7 @@ sealed class Mp4Panel : Panel
         btnClear.Click += (_, _) => { items.RemoveAll(i => !IsCurrent(i)); RefreshList(); };
         btnBrowse.Click += (_, _) => BrowseFolder();
         btnStart.Click += async (_, _) => await RunQueueAsync();
-        btnCancel.Click += (_, _) => { cts?.Cancel(); btnCancel.Enabled = false; lblStatus.Text = "İptal ediliyor…"; };
+        btnCancel.Click += (_, _) => { cts?.Cancel(); btnCancel.Enabled = false; lblStatus.Text = L.T("İptal ediliyor…"); };
         cmbEncoder.SelectedIndexChanged += (_, _) => { UpdateEncoderHint(); SaveSettings(); };
         rbDeintOn.CheckedChanged += (_, _) => { UpdateDeintHeader(); SaveSettings(); };
         btnDeint.Click += (_, _) => { deintBody.Visible = !deintBody.Visible; UpdateDeintHeader(); };
@@ -237,16 +237,16 @@ sealed class Mp4Panel : Panel
             c.HeaderCell.Style.Alignment = align;
             return c;
         }
-        colName = Col("ISO dosyası", 30);
-        colSize = Col("Boyut", 11, true);
-        colInfo = Col("Başlık · süre", 19);
-        colKbps = Col("Bit hızı (kbps)", 15, true);
+        colName = Col(L.T("ISO dosyası"), 30);
+        colSize = Col(L.T("Boyut"), 11, true);
+        colInfo = Col(L.T("Başlık · süre"), 19);
+        colKbps = Col(L.T("Bit hızı (kbps)"), 15, true);
         colKbps.ReadOnly = false;
         colKbps.DefaultCellStyle.ForeColor = Theme.AccentHover;
         colKbps.DefaultCellStyle.BackColor = Color.FromArgb(42, 44, 52);
-        colKbps.ToolTipText = "Tıklayıp bu ISO için bit hızını yazın";
-        colEstimate = Col("Tahmini MP4", 13, true);
-        colStatus = Col("Durum", 13, true);
+        colKbps.ToolTipText = L.T("Tıklayıp bu ISO için bit hızını yazın");
+        colEstimate = Col(L.T("Tahmini MP4"), 13, true);
+        colStatus = Col(L.T("Durum"), 13, true);
         grid.Columns.AddRange(colName, colSize, colInfo, colKbps, colEstimate, colStatus);
 
         // Bit hızı hücresine tıklayınca düzenleme başlar (odak geri gelince kendiliğinden başlamasın)
@@ -280,7 +280,7 @@ sealed class Mp4Panel : Panel
                 {
                     item.Kbps = v;
                     item.AutoKbps = false;
-                    Log($"{System.IO.Path.GetFileName(item.Path)}: bit hızı {v} kbps (MP4 ≈ {MainForm.FormatSize(HandBrake.EstimateBytes(item.Duration, v))}).");
+                    Log(L.F("{0}: bit hızı {1} kbps (MP4 ≈ {2}).", System.IO.Path.GetFileName(item.Path), v, MainForm.FormatSize(HandBrake.EstimateBytes(item.Duration, v))));
                 }
             }
             UpdateRow(item);
@@ -308,9 +308,9 @@ sealed class Mp4Panel : Panel
             row.Cells[colName.Index].Value = System.IO.Path.GetFileName(item.Path);
             row.Cells[colName.Index].ToolTipText = item.Path;
             row.Cells[colSize.Index].Value = item.IsoBytes > 0 ? $"{item.IsoBytes / (1024.0 * 1024):N0} MB" : "—";
-            row.Cells[colInfo.Index].Value = !item.Scanned ? "" : hasVideo ? $"{item.Titles.Count} başlık · {item.Duration:h\\:mm\\:ss}" : "video bulunamadı";
+            row.Cells[colInfo.Index].Value = !item.Scanned ? "" : hasVideo ? L.F("{0} başlık · {1:h\\:mm\\:ss}", item.Titles.Count, item.Duration) : L.T("video bulunamadı");
             if (!row.Cells[colKbps.Index].IsInEditMode)
-                row.Cells[colKbps.Index].Value = hasVideo ? item.Kbps + (item.AutoKbps ? " (oto)" : "") : "";
+                row.Cells[colKbps.Index].Value = hasVideo ? item.Kbps + (item.AutoKbps ? " " + L.T("(oto)") : "") : "";
             row.Cells[colEstimate.Index].Value = hasVideo ? "≈ " + MainForm.FormatSize(HandBrake.EstimateBytes(item.Duration, item.Kbps)) : "";
             row.Cells[colStatus.Index].Value = item.Status;
             return;
@@ -338,8 +338,8 @@ sealed class Mp4Panel : Panel
             chip.Click += (_, _) => ApplyToSelected(apply);
             return chip;
         }
-        var auto = Chip("Otomatik", SetAutoKbps);
-        tips.SetToolTip(auto, "MP4 yaklaşık ISO boyutunda çıkacak şekilde (100'ün katı)");
+        var auto = Chip(L.T("Otomatik"), SetAutoKbps);
+        tips.SetToolTip(auto, L.T("MP4 yaklaşık ISO boyutunda çıkacak şekilde (100'ün katı)"));
         presetRow.Controls.Add(auto);
         foreach (int k in settings.Mp4Presets.Where(k => k > 0).Take(4))
             presetRow.Controls.Add(Chip(k.ToString(), i => { i.Kbps = k; i.AutoKbps = false; }));
@@ -387,7 +387,7 @@ sealed class Mp4Panel : Panel
         bool wasLoading = loading;
         loading = true;
         encoderIds = ids.Count > 0 ? ids : ["x264"];
-        cmbEncoder.SetItems(encoderIds.Select(id => (object)(Encoders.TryGetValue(id, out var e) ? e.Name : id)));
+        cmbEncoder.SetItems(encoderIds.Select(id => (object)(Encoders.TryGetValue(id, out var e) ? L.T(e.Name) : id)));
         int idx = encoderIds.IndexOf(settings.Mp4Encoder);
         cmbEncoder.SelectedIndex = idx >= 0 ? idx : 0;
         loading = wasLoading;
@@ -397,32 +397,32 @@ sealed class Mp4Panel : Panel
     void UpdateEncoderHint()
     {
         string id = cmbEncoder.SelectedIndex >= 0 ? encoderIds[cmbEncoder.SelectedIndex] : "x264";
-        tips.SetToolTip(cmbEncoder, (Encoders.TryGetValue(id, out var e) ? e.Hint : "") +
-                                    (HandBrake.IsInstalled ? "" : " Ekran kartı seçenekleri HandBrake indirildikten sonra görünür."));
+        tips.SetToolTip(cmbEncoder, (Encoders.TryGetValue(id, out var e) ? L.T(e.Hint) : "") +
+                                    (HandBrake.IsInstalled ? "" : " " + L.T("Ekran kartı seçenekleri HandBrake indirildikten sonra görünür.")));
     }
 
     /// <summary>HandBrake kuruluysa bu bilgisayardaki kodlayıcıları yükler (sekme ilk açıldığında).</summary>
     public async Task LoadEncodersAsync()
     {
         var gpus = SystemStats.GpuNames();
-        Log("Ekran kartları: " + (gpus.Count > 0 ? string.Join(", ", gpus) : "bulunamadı"));
+        Log(L.F("Ekran kartları: {0}", gpus.Count > 0 ? string.Join(", ", gpus) : L.T("bulunamadı")));
         if (!HandBrake.IsInstalled) return;
         try
         {
             var list = await HandBrake.GetH264EncodersAsync();
             SetEncoders(list);
-            Log("HandBrake'in bu bilgisayarda kullanabildiği kodlayıcılar: " +
-                string.Join(", ", list.Select(id => Encoders.TryGetValue(id, out var e) ? e.Name.Split(" — ")[0] : id)));
+            Log(L.F("HandBrake'in bu bilgisayarda kullanabildiği kodlayıcılar: {0}",
+                string.Join(", ", list.Select(id => Encoders.TryGetValue(id, out var e) ? L.T(e.Name).Split(" — ")[0] : id))));
             // Takılı kart için kodlayıcı görünmüyorsa nedenini söyle
             bool Has(string vendor) => gpus.Any(g => g.Contains(vendor, StringComparison.OrdinalIgnoreCase));
             if (Has("NVIDIA") && !list.Contains("nvenc_h264"))
-                Log("NVIDIA kart var ama HandBrake NVENC'i kullanamıyor: ekran kartı sürücüsünü güncelleyin (çok eski kartlarda NVENC yoktur).");
+                Log(L.T("NVIDIA kart var ama HandBrake NVENC'i kullanamıyor: ekran kartı sürücüsünü güncelleyin (çok eski kartlarda NVENC yoktur)."));
             if ((Has("AMD") || Has("Radeon")) && !list.Any(e => e.StartsWith("vce") || e.StartsWith("vcn")))
-                Log("AMD kart var ama HandBrake kullanamıyor: AMD Adrenalin sürücüsünü güncelleyin.");
+                Log(L.T("AMD kart var ama HandBrake kullanamıyor: AMD Adrenalin sürücüsünü güncelleyin."));
             if (Has("Intel") && !list.Contains("qsv_h264"))
-                Log("Intel ekran kartı var ama Quick Sync kullanılamıyor: Intel grafik sürücüsünü güncelleyin; BIOS'ta dahili grafik kapalı olabilir.");
+                Log(L.T("Intel ekran kartı var ama Quick Sync kullanılamıyor: Intel grafik sürücüsünü güncelleyin; BIOS'ta dahili grafik kapalı olabilir."));
         }
-        catch (Exception ex) { Log("Kodlayıcılar okunamadı: " + ex.Message); }
+        catch (Exception ex) { Log(L.F("Kodlayıcılar okunamadı: {0}", ex.Message)); }
     }
 
     async Task UpdateSystemAsync()
@@ -435,7 +435,7 @@ sealed class Mp4Panel : Panel
             var snap = await Task.Run(stats.Sample);
             lblSystem.Text = SystemStats.Format(snap);
         }
-        catch { lblSystem.Text = "Sistem bilgisi okunamadı."; }
+        catch { lblSystem.Text = L.T("Sistem bilgisi okunamadı."); }
         finally { sampling = false; }
     }
 
@@ -444,21 +444,21 @@ sealed class Mp4Panel : Panel
         var scanned = items.Where(i => i.Scanned && i.Titles.Count > 0 && !i.Done).ToList();
         if (scanned.Count == 0)
         {
-            lblEstimate.Text = "Toplam MP4 ≈ —";
+            lblEstimate.Text = L.T("Toplam MP4 ≈ —");
         }
         else
         {
             var total = scanned.Aggregate(TimeSpan.Zero, (a, i) => a + i.Duration);
             long bytes = scanned.Sum(i => HandBrake.EstimateBytes(i.Duration, i.Kbps));
             long iso = scanned.Sum(i => i.IsoBytes);
-            lblEstimate.Text = $"Toplam MP4 ≈ {MainForm.FormatSize(bytes)}  (ISO'lar {MainForm.FormatSize(iso)})";
+            lblEstimate.Text = L.F("Toplam MP4 ≈ {0}  (ISO'lar {1})", MainForm.FormatSize(bytes), MainForm.FormatSize(iso));
         }
         foreach (var i in items) UpdateRow(i);
     }
 
     void BrowseFolder()
     {
-        using var dlg = new FolderBrowserDialog { Description = "MP4 dosyalarının kaydedileceği klasörü seçin", UseDescriptionForTitle = true };
+        using var dlg = new FolderBrowserDialog { Description = L.T("MP4 dosyalarının kaydedileceği klasörü seçin"), UseDescriptionForTitle = true };
         if (Directory.Exists(txtFolder.Text)) dlg.InitialDirectory = txtFolder.Text;
         if (dlg.ShowDialog(this) == DialogResult.OK) txtFolder.Text = dlg.SelectedPath;
     }
@@ -470,17 +470,17 @@ sealed class Mp4Panel : Panel
 
     void AddFilesDialog()
     {
-        using var dlg = new OpenFileDialog { Filter = "ISO kalıbı (*.iso)|*.iso", Multiselect = true, Title = "Dönüştürülecek ISO dosyalarını seçin" };
+        using var dlg = new OpenFileDialog { Filter = L.T("ISO kalıbı (*.iso)|*.iso"), Multiselect = true, Title = L.T("Dönüştürülecek ISO dosyalarını seçin") };
         if (dlg.ShowDialog(this) == DialogResult.OK)
             foreach (var f in dlg.FileNames) Enqueue(f, false);
     }
 
     void AddFolderDialog()
     {
-        using var dlg = new FolderBrowserDialog { Description = "İçindeki tüm ISO dosyaları eklenecek klasörü seçin", UseDescriptionForTitle = true };
+        using var dlg = new FolderBrowserDialog { Description = L.T("İçindeki tüm ISO dosyaları eklenecek klasörü seçin"), UseDescriptionForTitle = true };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
         var files = Directory.GetFiles(dlg.SelectedPath, "*.iso").OrderBy(f => f).ToList();
-        if (files.Count == 0) Log("Klasörde ISO dosyası bulunamadı: " + dlg.SelectedPath);
+        if (files.Count == 0) Log(L.F("Klasörde ISO dosyası bulunamadı: {0}", dlg.SelectedPath));
         foreach (var f in files) Enqueue(f, false);
     }
 
@@ -509,16 +509,16 @@ sealed class Mp4Panel : Panel
         var item = new Mp4Item(iso);
         items.Add(item);
         RefreshList();
-        Log("Listeye eklendi: " + System.IO.Path.GetFileName(iso));
+        Log(L.F("Listeye eklendi: {0}", System.IO.Path.GetFileName(iso)));
         if (HandBrake.IsInstalled) _ = ScanAsync(item);
-        else item.Status = "Bekliyor (HandBrake gerekli)";
+        else item.Status = L.T("Bekliyor (HandBrake gerekli)");
         if (autoStart && !IsBusy) _ = RunQueueAsync();
     }
 
     async Task ScanAsync(Mp4Item item)
     {
         if (item.Scanned) return;
-        item.Status = "Taranıyor…";
+        item.Status = L.T("Taranıyor…");
         UpdateRow(item);
         try
         {
@@ -533,34 +533,35 @@ sealed class Mp4Panel : Panel
                 ordered.AddRange(vcd.Streams.Where(v => v != main));
                 item.VcdStreams = ordered;
                 titles = ordered.Select((v, i) => new HbTitle(i + 1, v.Duration, 0, 0, 0, 0, 0, 1, false)).ToList();
-                reason = $"{vcd.Kind}: {ordered.Count} video dosyası ({string.Join(", ", ordered.Select(v => $"{v.Name} ≈ {v.Duration:h\\:mm\\:ss}"))}).";
+                reason = L.F("{0}: {1} video dosyası ({2}).", vcd.Kind, ordered.Count, string.Join(", ", ordered.Select(v => $"{v.Name} ≈ {v.Duration:h\\:mm\\:ss}")));
                 if (vcd.Kind == "Video CD")
-                    reason += " Video CD görüntüsü düşük çözünürlüklüdür (352×288); 1000–1500 kbps yeterlidir, daha yüksek bit hızı kaliteyi artırmaz, yalnız dosyayı büyütür.";
+                    reason += " " + L.T("Video CD görüntüsü düşük çözünürlüklüdür (352×288); 1000–1500 kbps yeterlidir, daha yüksek bit hızı kaliteyi artırmaz, yalnız dosyayı büyütür.");
             }
             item.Titles = titles;
             item.Scanned = true;
             if (titles.Count == 0)
             {
                 item.Failed = true;
-                item.Status = "Video yok";
-                Log($"{System.IO.Path.GetFileName(item.Path)}: dönüştürülecek video bulunamadı " +
-                    "(ISO'da ne DVD VIDEO_TS ne de Video CD MPEGAV/MPEG2 klasörü var).");
+                item.Status = L.T("Video yok");
+                Log(L.F("{0}: dönüştürülecek video bulunamadı (ISO'da ne DVD VIDEO_TS ne de Video CD MPEGAV/MPEG2 klasörü var).",
+                    System.IO.Path.GetFileName(item.Path)));
             }
             else
             {
-                if (!IsCurrent(item)) item.Status = "Bekliyor";
+                if (!IsCurrent(item)) item.Status = L.T("Bekliyor");
                 if (item.AutoKbps) SetAutoKbps(item);
                 Log($"{System.IO.Path.GetFileName(item.Path)}: {reason}" +
                     (item.VcdStreams == null ? " " + string.Join("; ", titles.Select(t => t.Describe())) : ""));
-                Log($"{System.IO.Path.GetFileName(item.Path)}: ISO {MainForm.FormatSize(item.IsoBytes)} → otomatik bit hızı {item.Kbps} kbps " +
-                    $"(MP4 ≈ {MainForm.FormatSize(HandBrake.EstimateBytes(item.Duration, item.Kbps))}). Değiştirmek için tablodaki bit hızına tıklayın.");
+                Log(L.F("{0}: ISO {1} → otomatik bit hızı {2} kbps (MP4 ≈ {3}). Değiştirmek için tablodaki bit hızına tıklayın.",
+                    System.IO.Path.GetFileName(item.Path), MainForm.FormatSize(item.IsoBytes), item.Kbps,
+                    MainForm.FormatSize(HandBrake.EstimateBytes(item.Duration, item.Kbps))));
             }
         }
         catch (Exception ex)
         {
             item.Scanned = true;
             item.Failed = true;
-            item.Status = "Taranamadı";
+            item.Status = L.T("Taranamadı");
             Log($"{System.IO.Path.GetFileName(item.Path)}: {ex.Message}");
         }
         RefreshEstimate();
@@ -572,23 +573,23 @@ sealed class Mp4Panel : Panel
     {
         if (HandBrake.IsInstalled) return true;
         if (MessageBox.Show(this,
-                "MP4 dönüştürme için HandBrakeCLI gerekiyor (ücretsiz, açık kaynak, yaklaşık 25 MB).\n\n" +
-                "HandBrake'in resmi GitHub sayfasından indirilip programın klasöründeki \"tools\" altına kaydedilecek. İndirilsin mi?",
+                L.T("MP4 dönüştürme için HandBrakeCLI gerekiyor (ücretsiz, açık kaynak, yaklaşık 25 MB).\n\n" +
+                    "HandBrake'in resmi GitHub sayfasından indirilip programın klasöründeki \"tools\" altına kaydedilecek. İndirilsin mi?"),
                 "MetroKafe DVD2ISO", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             return false;
         try
         {
             var status = new Progress<string>(s => lblStatus.Text = s);
             string version = await HandBrake.InstallAsync(status, CancellationToken.None);
-            Log($"HandBrake {version} indirildi: {HandBrake.ExePath}");
+            Log(L.F("HandBrake {0} indirildi: {1}", version, HandBrake.ExePath));
             await LoadEncodersAsync();
             return true;
         }
         catch (Exception ex)
         {
-            lblStatus.Text = "HandBrake indirilemedi.";
-            Log("HandBrake indirilemedi: " + ex.Message);
-            MessageBox.Show(this, "HandBrake indirilemedi: " + ex.Message, "MetroKafe DVD2ISO", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            lblStatus.Text = L.T("HandBrake indirilemedi.");
+            Log(L.F("HandBrake indirilemedi: {0}", ex.Message));
+            MessageBox.Show(this, L.F("HandBrake indirilemedi: {0}", ex.Message), "MetroKafe DVD2ISO", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return false;
         }
     }
@@ -605,11 +606,11 @@ sealed class Mp4Panel : Panel
     async Task RunQueueAsync()
     {
         if (IsBusy) return;
-        if (!items.Any(i => i.Pending)) { Log("Listede dönüştürülecek ISO yok. \"ISO ekle…\" ile ekleyin."); return; }
+        if (!items.Any(i => i.Pending)) { Log(L.T("Listede dönüştürülecek ISO yok. \"ISO ekle…\" ile ekleyin.")); return; }
         if (!await EnsureHandBrakeAsync()) return;
         if (!chkNextToIso.Checked && !Directory.Exists(txtFolder.Text.Trim()))
         {
-            MessageBox.Show(this, "Kayıt klasörü bulunamadı.", "MetroKafe DVD2ISO", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, L.T("Kayıt klasörü bulunamadı."), "MetroKafe DVD2ISO", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -618,10 +619,11 @@ sealed class Mp4Panel : Panel
         grid.EndEdit();
         var settingsNow = new EncodeSettings(0, encoderIds[Math.Max(0, cmbEncoder.SelectedIndex)], rbDeintOn.Checked);
         if (settingsNow.Encoder != "x264")
-            Log("Not: Ekran kartı kodlamayı yapar; taramalı görüntü düzeltme (Decomb) ve ses işlemcide yapıldığı için işlemci de kullanılır. " +
-                "Görev Yöneticisi'nde ekran kartı yükü \"3D\" değil video grafiklerinde (Video Encode / Video Decode / Video Codec) görünür.");
-        Log($"Dönüştürme başladı: {Encoders.GetValueOrDefault(settingsNow.Encoder).Name ?? settingsNow.Encoder}, " +
-            $"deinterlace {(settingsNow.Deinterlace ? "açık" : "kapalı")}, ses AAC {HandBrake.AudioKbps} kbps.");
+            Log(L.T("Not: Ekran kartı kodlamayı yapar; taramalı görüntü düzeltme (Decomb) ve ses işlemcide yapıldığı için işlemci de kullanılır. " +
+                "Görev Yöneticisi'nde ekran kartı yükü \"3D\" değil video grafiklerinde (Video Encode / Video Decode / Video Codec) görünür."));
+        Log(L.F("Dönüştürme başladı: {0}, deinterlace {1}, ses AAC {2} kbps.",
+            Encoders.TryGetValue(settingsNow.Encoder, out var enc) ? L.T(enc.Name) : settingsNow.Encoder,
+            settingsNow.Deinterlace ? L.T("açık") : L.T("kapalı"), HandBrake.AudioKbps));
         var sw = Stopwatch.StartNew();
         int converted = 0;
         var failedBefore = items.Where(i => i.Failed).ToHashSet();
@@ -644,7 +646,7 @@ sealed class Mp4Panel : Panel
                 catch (Exception ex)
                 {
                     item.Failed = true;
-                    item.Status = "Hata";
+                    item.Status = L.T("Hata");
                     Log($"{System.IO.Path.GetFileName(item.Path)}: {ex.Message}");
                 }
                 finally
@@ -655,15 +657,15 @@ sealed class Mp4Panel : Panel
             }
             int failedNow = items.Count(i => i.Failed && !failedBefore.Contains(i));
             progress.Value = converted > 0 ? progress.Maximum : 0;
-            lblStatus.Text = $"Bitti — {converted} ISO dönüştürüldü" + (failedNow > 0 ? $", {failedNow} ISO'da hata (ayrıntı günlükte)" : "") +
-                             $", süre {sw.Elapsed:hh\\:mm\\:ss}.";
+            lblStatus.Text = L.F("Bitti — {0} ISO dönüştürüldü", converted) + (failedNow > 0 ? L.F(", {0} ISO'da hata (ayrıntı günlükte)", failedNow) : "") +
+                             L.F(", süre {0:hh\\:mm\\:ss}.", sw.Elapsed);
             Log(lblStatus.Text);
         }
         catch (OperationCanceledException)
         {
-            foreach (var i in items.Where(i => i.Pending)) i.Status = "Bekliyor";
-            lblStatus.Text = "İptal edildi.";
-            Log("Dönüştürme iptal edildi; yarım kalan MP4 silindi.");
+            foreach (var i in items.Where(i => i.Pending)) i.Status = L.T("Bekliyor");
+            lblStatus.Text = L.T("İptal edildi.");
+            Log(L.T("Dönüştürme iptal edildi; yarım kalan MP4 silindi."));
             progress.Value = 0;
         }
         finally
@@ -688,7 +690,7 @@ sealed class Mp4Panel : Panel
             var title = item.Titles[k];
             string output = OutputFor(item, k);
             var vcdStream = item.VcdStreams?[k];
-            string what = vcdStream?.Name ?? $"başlık {title.Index}";
+            string what = vcdStream?.Name ?? L.F("başlık {0}", title.Index);
             Log($"{name}: {what} → {output} ({s.VideoKbps} kbps)");
             var tsw = Stopwatch.StartNew();
 
@@ -702,8 +704,8 @@ sealed class Mp4Panel : Panel
                     "." + System.IO.Path.GetFileNameWithoutExtension(output) + ".vcd.mpg");
                 var extractProg = new Progress<double>(f =>
                 {
-                    item.Status = $"Çıkarılıyor %{f * 100:0}";
-                    lblStatus.Text = $"ISO {index}/{count} · {name} · {vcdStream.Name} çıkarılıyor… %{f * 100:0}";
+                    item.Status = L.F("Çıkarılıyor %{0:0}", f * 100);
+                    lblStatus.Text = L.F("ISO {0}/{1} · {2} · {3} çıkarılıyor… %{4:0}", index, count, name, vcdStream.Name, f * 100);
                     UpdateRow(item);
                 });
                 await Task.Run(() => VideoCdIso.Extract(item.Path, vcdStream, temp, extractProg, ct), ct);
@@ -713,22 +715,25 @@ sealed class Mp4Panel : Panel
             }
             var prog = new Progress<HbProgress>(p =>
             {
-                item.Status = $"%{p.Percent:0}";
+                item.Status = L.F("%{0:0}", p.Percent);
                 double overall = (doneBefore + title.Duration.TotalSeconds * p.Percent / 100) / totalSeconds;
                 progress.Value = (int)(Math.Clamp(overall, 0, 1) * progress.Maximum);
-                lblStatus.Text = $"ISO {index}/{count} · {name}" + (item.Titles.Count > 1 ? $" · başlık {k + 1}/{item.Titles.Count}" : "") +
-                                 $" · %{p.Percent:0.0}" + (p.Fps > 0 ? $" · {p.Fps:0} fps" : "") +
-                                 (p.Eta is { } eta ? $" · kalan {eta:hh\\:mm\\:ss}" : "");
+                lblStatus.Text = $"ISO {index}/{count} · {name}" + (item.Titles.Count > 1 ? L.F(" · başlık {0}/{1}", k + 1, item.Titles.Count) : "") +
+                                 L.F(" · %{0:0.0}", p.Percent) + (p.Fps > 0 ? $" · {p.Fps:0} fps" : "") +
+                                 (p.Eta is { } eta ? L.F(" · kalan {0:hh\\:mm\\:ss}", eta) : "");
                 UpdateRow(item);
             });
             var info = new Progress<string>(Log);
             bool encoderLogged = false;
+            // HandBrake.EncodeAsync'in "HandBrake kodlayıcı: …" satırını tanımak için (geçerli dildeki önek)
+            string encoderTag = L.F("HandBrake kodlayıcı: {0}", "");
             try
             {
                 await HandBrake.EncodeAsync(input, hbTitle, output, s, prog, ct, line =>
                 {
-                    if (encoderLogged && line.Contains("kodlayıcı")) return;
-                    encoderLogged |= line.Contains("kodlayıcı");
+                    bool isEncoder = line.StartsWith(encoderTag, StringComparison.Ordinal);
+                    if (encoderLogged && isEncoder) return;
+                    encoderLogged |= isEncoder;
                     ((IProgress<string>)info).Report(line);
                 });
             }
@@ -737,14 +742,14 @@ sealed class Mp4Panel : Panel
                 if (temp != null) try { File.Delete(temp); } catch { }
             }
             doneBefore += title.Duration.TotalSeconds;
-            Log($"{name}: {what} tamam — {MainForm.FormatSize(new FileInfo(output).Length)}, süre {tsw.Elapsed:hh\\:mm\\:ss}.");
+            Log(L.F("{0}: {1} tamam — {2}, süre {3:hh\\:mm\\:ss}.", name, what, MainForm.FormatSize(new FileInfo(output).Length), tsw.Elapsed));
         }
-        item.Status = "Bitti";
+        item.Status = L.T("Bitti");
     }
 
     // Açılır başlık: seçili değeri ve açık/kapalı okunu gösterir
     void UpdateDeintHeader() =>
-        btnDeint.Text = $"Taramalı görüntü düzeltme: {(rbDeintOn.Checked ? "Açık" : "Kapalı")}  {(deintBody.Visible ? "▴" : "▾")}";
+        btnDeint.Text = L.F("Taramalı görüntü düzeltme: {0}  {1}", rbDeintOn.Checked ? L.T("Açık") : L.T("Kapalı"), deintBody.Visible ? "▴" : "▾");
 
     void UpdateFolderRow() => folderRow.Visible = !chkNextToIso.Checked && !IsBusy;
 

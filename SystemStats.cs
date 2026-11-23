@@ -187,11 +187,11 @@ public sealed class SystemStats : IDisposable
     public static string Format(SystemSnapshot s)
     {
         static string Gb(long b) => (b / (1024.0 * 1024 * 1024)).ToString("0.0");
-        string cpu = $"İşlemci %{s.CpuPercent:0}" + (s.CpuTempC is { } ct ? $" · {ct:0} °C (anakart)" : "");
+        string cpu = L.F("İşlemci %{0:0}", s.CpuPercent) + (s.CpuTempC is { } ct ? L.F(" · {0:0} °C (anakart)", ct) : "");
         string ram = $"RAM {Gb(s.RamUsed)} / {Gb(s.RamTotal)} GB";
         string gpu = s.Gpu3D == null
-            ? "Ekran kartı: —"
-            : $"Ekran kartı: video kodlama/çözme %{s.GpuVideo:0} · 3D %{s.Gpu3D:0}" + (s.GpuTempC is { } gt ? $" · {gt:0} °C" : "");
+            ? L.T("Ekran kartı: —")
+            : L.F("Ekran kartı: video kodlama/çözme %{0:0} · 3D %{1:0}", s.GpuVideo, s.Gpu3D) + (s.GpuTempC is { } gt ? $" · {gt:0} °C" : "");
         return $"{cpu}     {ram}     {gpu}";
     }
 

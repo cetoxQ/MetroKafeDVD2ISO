@@ -1,4 +1,4 @@
-using System.Drawing.Drawing2D;
+﻿using System.Drawing.Drawing2D;
 
 namespace MetroKafeDVD2ISO;
 
@@ -402,5 +402,129 @@ sealed class StatCard : Panel
         using var path = Theme.Round(new RectangleF(0, 0, Width - 1, Height - 1), 8);
         using var b = new SolidBrush(Theme.Surface);
         g.FillPath(b, path);
+    }
+}
+
+/// <summary>Dil seçicideki küçük bayraklar (kodla çizilir; Windows bayrak emojilerini göstermez).</summary>
+static class Flags
+{
+    public static Bitmap Render(string lang, int height)
+    {
+        int w = (int)Math.Round(height * 1.5), h = height;
+        var bmp = new Bitmap(w, h);
+        using var g = Graphics.FromImage(bmp);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        using var clip = Theme.Round(new RectangleF(0, 0, w, h), Math.Max(1.5f, h / 8f));
+        g.SetClip(clip);
+        if (lang == L.English) DrawUk(g, w, h); else DrawTurkey(g, h);
+        g.ResetClip();
+        using var edge = new Pen(Color.FromArgb(70, 0, 0, 0));
+        using var border = Theme.Round(new RectangleF(0.5f, 0.5f, w - 1, h - 1), Math.Max(1.5f, h / 8f));
+        g.DrawPath(edge, border);
+        return bmp;
+    }
+
+    // Türk bayrağı: ölçüler bayrak yüksekliğine (G) göre, Türk Bayrağı Kanunu'ndaki oranlarla (en 1,5 G)
+    static void DrawTurkey(Graphics g, float G)
+    {
+        g.Clear(Color.FromArgb(227, 10, 23));
+        using var white = new SolidBrush(Color.White);
+        using var red = new SolidBrush(Color.FromArgb(227, 10, 23));
+        float cy = G / 2;
+        float outerX = 0.375f * G, outerR = 0.25f * G;
+        float innerX = outerX + 0.0625f * G, innerR = 0.2f * G;
+        g.FillEllipse(white, outerX - outerR, cy - outerR, outerR * 2, outerR * 2);
+        g.FillEllipse(red, innerX - innerR, cy - innerR, innerR * 2, innerR * 2);
+        float starR = 0.189f * G, starX = 0.6765f * G;
+        var pts = new PointF[10];
+        for (int i = 0; i < 10; i++)
+        {
+            double a = Math.PI + i * Math.PI / 5;               // bir ucu direğe dönük
+            float r = i % 2 == 0 ? starR : starR * 0.382f;
+            pts[i] = new PointF(starX + (float)(r * Math.Cos(a)), cy + (float)(r * Math.Sin(a)));
+        }
+        g.FillPolygon(white, pts);
+    }
+
+    // Birleşik Krallık bayrağı (Union Jack), küçük boyut için sadeleştirilmiş
+    static void DrawUk(Graphics g, float w, float h)
+    {
+        g.Clear(Color.FromArgb(1, 33, 105));
+        var red = Color.FromArgb(200, 16, 46);
+        using (var p = new Pen(Color.White, h / 5f)) { g.DrawLine(p, 0, 0, w, h); g.DrawLine(p, 0, h, w, 0); }
+        using (var p = new Pen(red, h / 12f)) { g.DrawLine(p, 0, 0, w, h); g.DrawLine(p, 0, h, w, 0); }
+        using (var b = new SolidBrush(Color.White)) { g.FillRectangle(b, w / 2 - h / 6, 0, h / 3, h); g.FillRectangle(b, 0, h / 3, w, h / 3); }
+        using (var b = new SolidBrush(red)) { g.FillRectangle(b, w / 2 - h / 10, 0, h / 5, h); g.FillRectangle(b, 0, h * 0.4f, w, h / 5); }
+    }
+}
+
+/// <summary>Başlık çubuğunun sağ üstündeki dil seçici: bayrak + dil adı.</summary>
+sealed class LanguageButton : Control
+{
+    public static readonly (string Code, string Name)[] Languages = [(L.Turkish, "Türkçe"), (L.English, "English")];
+
+    bool hover;
+    public event Action<string>? LanguageSelected;
+
+    public LanguageButton()
+    {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+        SetStyle(ControlStyles.Selectable, false);
+        Cursor = Cursors.Hand;
+        Margin = new Padding(0, 0, 4, 0);
+        AutoSize = true;
+        Dock = DockStyle.Fill;
+    }
+
+    static string NameOf(string code) => Languages.First(l => l.Code == code).Name;
+    int FlagHeight => (int)Math.Round(14 * DeviceDpi / 96.0);
+
+    public override Size GetPreferredSize(Size proposedSize)
+    {
+        float s = DeviceDpi / 96f;
+        int text = Languages.Max(l => TextRenderer.MeasureText(l.Name, Font).Width);
+        return new Size((int)(12 * s) + (int)(FlagHeight * 1.5) + (int)(8 * s) + text + (int)(22 * s), proposedSize.Height);
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+
+    protected override void OnClick(EventArgs e)
+    {
+        base.OnClick(e);
+        var menu = new ContextMenuStrip
+        {
+            Renderer = new DarkMenuRenderer(),
+            BackColor = Theme.Surface,
+            ForeColor = Theme.Text,
+            Font = Font,
+            ImageScalingSize = new Size((int)(FlagHeight * 1.5), FlagHeight),
+        };
+        foreach (var (code, name) in Languages)
+        {
+            var mi = new ToolStripMenuItem(name, Flags.Render(code, FlagHeight)) { ForeColor = Theme.Text };
+            if (code == L.Lang) mi.Font = new Font(Font, FontStyle.Bold);
+            mi.Click += (_, _) => { if (code != L.Lang) LanguageSelected?.Invoke(code); };
+            menu.Items.Add(mi);
+        }
+        menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
+        menu.Show(this, new Point(Width - menu.PreferredSize.Width, Height));
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.Clear(hover ? Color.FromArgb(40, 42, 50) : Theme.ParentBack(this));
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        float s = DeviceDpi / 96f;
+        int fh = FlagHeight, fw = (int)(fh * 1.5);
+        int x = (int)(12 * s), y = (Height - fh) / 2;
+        using (var flag = Flags.Render(L.Lang, fh)) g.DrawImage(flag, x, y, fw, fh);
+        x += fw + (int)(8 * s);
+        var tr = new Rectangle(x, 0, Width - x, Height);
+        TextRenderer.DrawText(g, NameOf(L.Lang), Font, tr, hover ? Theme.Text : Theme.TextDim, TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+        float cs = 3.5f * s, cx = Width - 12 * s, cy = Height / 2f;
+        using var pen = new Pen(Theme.TextDim, Math.Max(1.2f, 1.3f * s));
+        g.DrawLines(pen, [new PointF(cx - cs, cy - cs / 2), new PointF(cx, cy + cs / 2), new PointF(cx + cs, cy - cs / 2)]);
     }
 }

@@ -1,4 +1,11 @@
-# Sürüm notları
+﻿# Sürüm notları
+
+## v1.8.0 — 2026-11-23
+- İngilizce arayüz: program ilk açılışta Windows dili Türkçe ise Türkçe, değilse İngilizce açılıyor; seçim kalıcı olarak saklanıyor
+- Sağ üstte bayraklı dil seçici (Türkçe / English); dil değişince pencere aynı yerde yeni dilde yeniden açılıyor (kopyalama veya dönüştürme sürerken değiştirilemez)
+- Günlükler, uyarılar, disk motoru mesajları ve sürüm notları da seçilen dilde; sayılar dile göre biçimleniyor (1,8 GB / 1.8 GB)
+- Güncellemeler sekmesi kaldırıldı: güncelleme denetimi Ayarlar sayfasının en üstünde ayrı bölüm; sürüm notları "Sürüm notları" düğmesiyle açılıyor
+- "Yeni sürüm" çipi artık Ayarlar sayfasını açıyor
 
 ## v1.7.0 — 2026-11-23
 - MP4 listesi tabloya dönüştü: ISO dosyası · boyut (MB) · başlık/süre · bit hızı · tahmini MP4 · durum

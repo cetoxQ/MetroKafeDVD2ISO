@@ -121,9 +121,9 @@ public static class DiscLayout
         {
             long fs = ReadFileSystemSize(readSector);
             long size = ChooseSize(deviceLength, fs);
-            string why = toc == null ? "iz bilgisi alınamadı" : "veri izi bulunamadı";
+            string why = toc == null ? L.T("iz bilgisi alınamadı") : L.T("veri izi bulunamadı");
             return new DiscPlan(size, Math.Max(0, deviceLength - size), [], 0,
-                $"Disk düzeni: {why}; boyut {Describe(fs, deviceLength)}.");
+                L.F("Disk düzeni: {0}; boyut {1}.", why, Describe(fs, deviceLength)));
         }
 
         long deviceSectors = deviceLength > 0 ? deviceLength / Sector : long.MaxValue;
@@ -144,7 +144,7 @@ public static class DiscLayout
             ranges.Add((start, ownFileSystem ? fsEnd : trackEnd, trackEnd));
         }
         if (ranges.Count == 0)
-            return new DiscPlan(deviceLength, 0, [], 0, "Disk düzeni: veri izleri okunamadı; sürücünün bildirdiği boyut kullanılıyor.");
+            return new DiscPlan(deviceLength, 0, [], 0, L.T("Disk düzeni: veri izleri okunamadı; sürücünün bildirdiği boyut kullanılıyor."));
 
         // Son veri izinde dosya sistemi izin sonundan çok gerideyse kesmek yerine izin tamamını oku (ChooseSize ile aynı ilke)
         var last = ranges[^1];
@@ -165,18 +165,18 @@ public static class DiscLayout
 
         int audio = tracks.Count(t => !t.IsData);
         var sb = new System.Text.StringBuilder();
-        sb.Append($"Disk düzeni: {tracks.Count} iz (");
-        sb.Append(string.Join(", ", tracks.Select(t => $"{t.Number}: {(t.IsData ? "veri" : "ses")} @{t.Start:N0}")));
-        sb.Append($"), kapanış @{leadOut:N0}. Okunacak: ");
+        sb.Append(L.F("Disk düzeni: {0} iz (", tracks.Count));
+        sb.Append(string.Join(", ", tracks.Select(t => $"{t.Number}: {(t.IsData ? L.T("veri") : L.T("ses"))} @{t.Start:N0}")));
+        sb.Append(L.F("), kapanış @{0:N0}. Okunacak: ", leadOut));
         sb.Append(string.Join(", ", ranges.Select(r => $"{r.Start:N0}–{r.End - 1:N0}")));
-        if (gaps.Count > 0) sb.Append($"; izler/oturumlar arasındaki {gaps.Sum(g => g.Item2 - g.Item1) / Sector:N0} sektörlük okunamaz boşluk sıfırla doldurulacak");
-        if (audio > 0) sb.Append($"; {audio} ses izi ISO'ya alınmaz");
-        if (lastSession > 0) sb.Append("; çok oturumlu disk, ISO son oturumun dosyalarını gösterecek");
+        if (gaps.Count > 0) sb.Append(L.F("; izler/oturumlar arasındaki {0:N0} sektörlük okunamaz boşluk sıfırla doldurulacak", gaps.Sum(g => g.Item2 - g.Item1) / Sector));
+        if (audio > 0) sb.Append(L.F("; {0} ses izi ISO'ya alınmaz", audio));
+        if (lastSession > 0) sb.Append(L.T("; çok oturumlu disk, ISO son oturumun dosyalarını gösterecek"));
         sb.Append('.');
 
         return new DiscPlan(ranges[^1].End * Sector, tail * Sector, gaps, lastSession, sb.ToString());
     }
 
     static string Describe(long fs, long device) =>
-        fs > 0 ? $"dosya sisteminden {fs / Sector:N0} sektör (sürücü {device / Sector:N0} bildiriyor)" : $"sürücüden {device / Sector:N0} sektör";
+        fs > 0 ? L.F("dosya sisteminden {0:N0} sektör (sürücü {1:N0} bildiriyor)", fs / Sector, device / Sector) : L.F("sürücüden {0:N0} sektör", device / Sector);
 }

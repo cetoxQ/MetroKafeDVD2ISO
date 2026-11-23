@@ -12,9 +12,9 @@ public sealed record HbTitle(int Index, TimeSpan Duration, int Width, int Height
     double Fps, int Chapters, bool Interlaced)
 {
     public string Describe() =>
-        $"başlık {Index}: {Duration:h\\:mm\\:ss}" +
+        L.F("başlık {0}: {1:h\\:mm\\:ss}", Index, Duration) +
         (Width > 0 ? $", {Width}×{Height}, {Fps.ToString("0.###", CultureInfo.InvariantCulture)} fps" : "") +
-        (Chapters > 1 ? $", {Chapters} bölüm" : "") + (Interlaced ? ", taramalı" : "");
+        (Chapters > 1 ? L.F(", {0} bölüm", Chapters) : "") + (Interlaced ? L.T(", taramalı") : "");
 }
 
 public sealed record HbScan(IReadOnlyList<HbTitle> Titles, int MainFeature);
@@ -60,7 +60,7 @@ public static class HandBrake
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
         http.DefaultRequestHeaders.UserAgent.ParseAdd($"{UpdateChecker.Repo}/{UpdateChecker.Format(UpdateChecker.Current)}");
 
-        status.Report("HandBrake sürüm bilgisi alınıyor…");
+        status.Report(L.T("HandBrake sürüm bilgisi alınıyor…"));
         string json = await http.GetStringAsync("https://api.github.com/repos/HandBrake/HandBrake/releases/latest", ct);
         using var doc = JsonDocument.Parse(json);
         string version = doc.RootElement.GetProperty("tag_name").GetString() ?? "";
@@ -68,7 +68,7 @@ public static class HandBrake
         foreach (var a in doc.RootElement.GetProperty("assets").EnumerateArray())
             if (Regex.IsMatch(a.GetProperty("name").GetString() ?? "", @"^HandBrakeCLI-[\d.]+-win-x86_64\.zip$"))
                 url = a.GetProperty("browser_download_url").GetString();
-        if (url == null) throw new IOException("HandBrake sürümünde Windows komut satırı paketi bulunamadı.");
+        if (url == null) throw new IOException(L.T("HandBrake sürümünde Windows komut satırı paketi bulunamadı."));
 
         string dir = Path.GetDirectoryName(ExePath)!;
         Directory.CreateDirectory(dir);
@@ -88,15 +88,15 @@ public static class HandBrake
                 {
                     await output.WriteAsync(buf.AsMemory(0, n), ct);
                     done += n;
-                    if (length > 0) status.Report($"HandBrake {version} indiriliyor… %{done * 100 / length.Value}");
+                    if (length > 0) status.Report(L.F("HandBrake {0} indiriliyor… %{1}", version, done * 100 / length.Value));
                 }
             }
 
-            status.Report("HandBrake kuruluyor…");
+            status.Report(L.T("HandBrake kuruluyor…"));
             using (var archive = ZipFile.OpenRead(zip))
             {
                 var entry = archive.Entries.FirstOrDefault(e => e.Name.Equals("HandBrakeCLI.exe", StringComparison.OrdinalIgnoreCase))
-                            ?? throw new IOException("İndirilen pakette HandBrakeCLI.exe yok.");
+                            ?? throw new IOException(L.T("İndirilen pakette HandBrakeCLI.exe yok."));
                 string tmp = ExePath + ".tmp";
                 entry.ExtractToFile(tmp, true);
                 File.Move(tmp, ExePath, true);
@@ -148,7 +148,7 @@ public static class HandBrake
         if (json == null && stderr.Contains("No title found", StringComparison.OrdinalIgnoreCase))
             return new HbScan([], 0);
         if (json == null)
-            throw new IOException("HandBrake ISO'yu tarayamadı. " + LastLines(stderr, 3));
+            throw new IOException(L.F("HandBrake ISO'yu tarayamadı. {0}", LastLines(stderr, 3)));
         return ParseScan(json);
     }
 
@@ -186,11 +186,11 @@ public static class HandBrake
     /// </summary>
     public static (List<HbTitle> Titles, string Reason) PickTitles(HbScan scan)
     {
-        if (scan.Titles.Count == 0) return ([], "Dönüştürülecek video başlığı bulunamadı.");
+        if (scan.Titles.Count == 0) return ([], L.T("Dönüştürülecek video başlığı bulunamadı."));
         var candidates = scan.Titles.Where(t => t.Duration >= MinTitle).ToList();
         // Hepsi 1 dakikadan kısaysa (menü videoları ya da çok kısa kayıt) yalnız en uzunu al
         if (candidates.Count == 0)
-            return ([scan.Titles.OrderByDescending(t => t.Duration).First()], "Tüm başlıklar 1 dakikadan kısa; yalnız en uzunu dönüştürülecek.");
+            return ([scan.Titles.OrderByDescending(t => t.Duration).First()], L.T("Tüm başlıklar 1 dakikadan kısa; yalnız en uzunu dönüştürülecek."));
 
         var main = candidates.FirstOrDefault(t => t.Index == scan.MainFeature)
                    ?? candidates.OrderByDescending(t => t.Duration).First();
@@ -209,14 +209,14 @@ public static class HandBrake
             double sum = others.Sum(o => o.Duration.TotalSeconds);
             double tolerance = Math.Max(5, main.Duration.TotalSeconds * 0.03);
             if (Math.Abs(sum - main.Duration.TotalSeconds) <= tolerance)
-                return ([main], $"Ana başlık diğer {others.Count} başlığın tamamını içeriyor (\"hepsini oynat\"); yalnız ana başlık dönüştürülecek.");
+                return ([main], L.F("Ana başlık diğer {0} başlığın tamamını içeriyor (\"hepsini oynat\"); yalnız ana başlık dönüştürülecek.", others.Count));
         }
 
         var picked = new List<HbTitle> { main };
         picked.AddRange(others);
         string reason = picked.Count == 1
-            ? "Tek video başlığı."
-            : $"Ana başlık {main.Index} + {others.Count} ayrı başlık ({string.Join(", ", others.Select(o => o.Index))}).";
+            ? L.T("Tek video başlığı.")
+            : L.F("Ana başlık {0} + {1} ayrı başlık ({2}).", main.Index, others.Count, string.Join(", ", others.Select(o => o.Index)));
         return (picked, reason);
     }
 
@@ -249,7 +249,7 @@ public static class HandBrake
         IProgress<HbProgress> progress, CancellationToken ct, Action<string>? info = null)
     {
         var psi = NewStartInfo(BuildArgs(input, title, output, settings));
-        using var p = Process.Start(psi) ?? throw new IOException("HandBrake başlatılamadı.");
+        using var p = Process.Start(psi) ?? throw new IOException(L.T("HandBrake başlatılamadı."));
         var errTail = new Queue<string>();
         var errTask = Task.Run(async () =>
         {
@@ -259,7 +259,7 @@ public static class HandBrake
                 lock (errTail) { errTail.Enqueue(line); if (errTail.Count > 40) errTail.Dequeue(); }
                 // Ör. "+ encoder: H.264 (libx264)", "+ encoder: H.264 (Intel Media SDK)", "+ decoder: mpeg2video (qsv)"
                 var m = Regex.Match(line, @"\+ (encoder|decoder): (.+)$");
-                if (m.Success) info?.Invoke($"HandBrake {(m.Groups[1].Value == "encoder" ? "kodlayıcı" : "kod çözücü")}: {m.Groups[2].Value.Trim()}");
+                if (m.Success) info?.Invoke(L.F(m.Groups[1].Value == "encoder" ? "HandBrake kodlayıcı: {0}" : "HandBrake kod çözücü: {0}", m.Groups[2].Value.Trim()));
             }
         });
         var outTask = Task.Run(async () =>
@@ -307,9 +307,9 @@ public static class HandBrake
             TryDelete(output);
             string tail;
             lock (errTail) tail = string.Join(" | ", errTail.Where(l => Regex.IsMatch(l, "error|fail|cannot|unable|not available", RegexOptions.IgnoreCase)).TakeLast(3));
-            throw new IOException($"HandBrake dönüştürmeyi tamamlayamadı (çıkış kodu {p.ExitCode})." +
+            throw new IOException(L.F("HandBrake dönüştürmeyi tamamlayamadı (çıkış kodu {0}).", p.ExitCode) +
                                   (tail.Length > 0 ? " " + tail : "") +
-                                  (settings.Encoder != "x264" ? " Ekran kartı kodlayıcısı yerine \"İşlemci (x264)\" seçip tekrar deneyin." : ""));
+                                  (settings.Encoder != "x264" ? " " + L.T("Ekran kartı kodlayıcısı yerine \"İşlemci (x264)\" seçip tekrar deneyin.") : ""));
         }
     }
 
@@ -333,7 +333,7 @@ public static class HandBrake
     /// <summary>Çıktı ve hata akışlarını aynı anda okur (biri dolup diğerini kilitlemesin).</summary>
     static async Task<(string Out, string Err)> RunToEndAsync(string[] args, CancellationToken ct)
     {
-        using var p = Process.Start(NewStartInfo(args)) ?? throw new IOException("HandBrake başlatılamadı.");
+        using var p = Process.Start(NewStartInfo(args)) ?? throw new IOException(L.T("HandBrake başlatılamadı."));
         var o = p.StandardOutput.ReadToEndAsync(ct);
         var e = p.StandardError.ReadToEndAsync(ct);
         try

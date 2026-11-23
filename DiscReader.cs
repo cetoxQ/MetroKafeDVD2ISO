@@ -85,7 +85,7 @@ public sealed class DiscCopier
 
     public CopyResult Run(string outputPath)
     {
-        if (total <= 0) throw new IOException("Disk boyutu okunamadı. Sürücüde okunabilir bir disk olduğundan emin olun.");
+        if (total <= 0) throw new IOException(L.T("Disk boyutu okunamadı. Sürücüde okunabilir bir disk olduğundan emin olun."));
         var sw = Stopwatch.StartNew();
         try
         {
@@ -142,12 +142,12 @@ public sealed class DiscCopier
                 continue;
             }
 
-            string why = st == ReadStatus.TimedOut ? "okuma zaman aşımına uğradı" : "okunamadı";
+            string why = st == ReadStatus.TimedOut ? L.T("okuma zaman aşımına uğradı") : L.T("okunamadı");
             if (TwoPass)
             {
                 long skipLen = Math.Min(len + skip, limit - pos);
                 pending.Add((pos, skipLen));
-                Report(force: true, message: $"Hasarlı bölge ({FormatMB(pos)} konumunda {why}); {FormatMB(skipLen, true)} atlandı, en sonda tekrar denenecek");
+                Report(force: true, message: L.F("Hasarlı bölge ({0} konumunda {1}); {2} atlandı, en sonda tekrar denenecek", FormatMB(pos), why, FormatMB(skipLen, true)));
                 pos += skipLen;
                 skip = skip == 0 ? ChunkSize : Math.Min(skip * 2, MaxSkip);
             }
@@ -164,7 +164,7 @@ public sealed class DiscCopier
 
         phase = CopyPhase.Recovering;
         long pendingBytes = pending.Sum(p => p.len);
-        Report(force: true, message: $"Sağlam bölümler bitti. {pending.Count} hasarlı bölge ({FormatMB(pendingBytes, true)}) tekrar deneniyor");
+        Report(force: true, message: L.F("Sağlam bölümler bitti. {0} hasarlı bölge ({1}) tekrar deneniyor", pending.Count, FormatMB(pendingBytes, true)));
         if (opt.SlowDownOnErrors) SetSlow(true);
         foreach (var (start, len) in pending) RecoverRange(output, start, len);
     }
@@ -220,7 +220,7 @@ public sealed class DiscCopier
             output.Write(last[i], 0, SectorSize);
             mergedSectors.Add(16 + i);
         }
-        Report(force: true, message: "Çok oturumlu disk: son oturumun dosya sistemi tanımı ISO'nun başına yazıldı; ISO açıldığında son eklenen dosyalar da görünür.");
+        Report(force: true, message: L.T("Çok oturumlu disk: son oturumun dosya sistemi tanımı ISO'nun başına yazıldı; ISO açıldığında son eklenen dosyalar da görünür."));
     }
 
     /// <summary>
@@ -257,11 +257,11 @@ public sealed class DiscCopier
 
         long added = (pos - total) / SectorSize, skipped = (end - pos) / SectorSize;
         if (added > 0)
-            Report(force: true, message: $"Dosya sisteminden sonra {added:N0} sektör daha okunabildi ve ISO'ya eklendi.");
+            Report(force: true, message: L.F("Dosya sisteminden sonra {0:N0} sektör daha okunabildi ve ISO'ya eklendi.", added));
         if (skipped > 0)
         {
-            Report(force: true, message: $"Disk sonundaki {skipped:N0} sektör okunamadı. Bunlar veri içermeyen kuyruk sektörleri " +
-                                         "(yazılabilir disklerde normaldir); hata sayılmadı.");
+            Report(force: true, message: L.F("Disk sonundaki {0:N0} sektör okunamadı. Bunlar veri içermeyen kuyruk sektörleri " +
+                                               "(yazılabilir disklerde normaldir); hata sayılmadı.", skipped));
             output.SetLength(pos);
         }
         total = pos;
@@ -291,7 +291,7 @@ public sealed class DiscCopier
                 for (int attempt = 1; attempt <= RetriesPerSector; attempt++)
                 {
                     ct.ThrowIfCancellationRequested();
-                    Report(force: true, detail: $"sektör {sector:N0}, deneme {attempt}/{RetriesPerSector}");
+                    Report(force: true, detail: L.F("sektör {0:N0}, deneme {1}/{2}", sector, attempt, RetriesPerSector));
                     st = src.Read(off + s, buffer, s, SectorSize);
                     // Zaman aşımında tekrar denemek yine dakikalar sürer; doğrudan atla
                     if (st != ReadStatus.Error) break;
@@ -303,11 +303,11 @@ public sealed class DiscCopier
                 }
                 else
                 {
-                    string why = st == ReadStatus.TimedOut ? "zaman aşımı" : "okunamadı";
+                    string why = st == ReadStatus.TimedOut ? L.T("zaman aşımı") : L.T("okunamadı");
                     if (!opt.SkipBadSectors)
-                        throw new IOException($"Sektör {sector:N0} okunamadı ({why}). Disk çizik veya hasarlı olabilir.");
+                        throw new IOException(L.F("Sektör {0:N0} okunamadı ({1}). Disk çizik veya hasarlı olabilir.", sector, why));
                     badSectors.Add(sector);
-                    Report(force: true, message: $"Sektör {sector:N0} atlandı ({why}), sıfırla dolduruldu");
+                    Report(force: true, message: L.F("Sektör {0:N0} atlandı ({1}), sıfırla dolduruldu", sector, why));
                 }
                 processed += SectorSize;
             }
@@ -318,7 +318,7 @@ public sealed class DiscCopier
     {
         phase = CopyPhase.Verifying;
         processed = 0;
-        Report(force: true, message: "Doğrulama başladı: disk tekrar okunup ISO ile karşılaştırılıyor");
+        Report(force: true, message: L.T("Doğrulama başladı: disk tekrar okunup ISO ile karşılaştırılıyor"));
 
         // Atlanan ve bilerek değiştirilen sektörler karşılaştırılmaz
         var bad = badSectors.Concat(mergedSectors).ToHashSet();
@@ -351,7 +351,7 @@ public sealed class DiscCopier
                     if (!buffer.AsSpan(s, SectorSize).SequenceEqual(fileBuf.AsSpan(s, SectorSize)))
                     {
                         mismatches++;
-                        Report(force: true, message: $"Doğrulama: sektör {sector:N0} diskle uyuşmuyor");
+                        Report(force: true, message: L.F("Doğrulama: sektör {0:N0} diskle uyuşmuyor", sector));
                     }
                 }
             }
@@ -370,12 +370,12 @@ public sealed class DiscCopier
         if (src.SetSlowSpeed(slow))
         {
             slowed = slow;
-            Report(force: true, message: slow ? "Sürücü hızı düşürüldü (hasarlı bölge daha yavaş okunuyor)" : "Sürücü hızı normale döndü");
+            Report(force: true, message: slow ? L.T("Sürücü hızı düşürüldü (hasarlı bölge daha yavaş okunuyor)") : L.T("Sürücü hızı normale döndü"));
         }
         else if (!speedWarned)
         {
             speedWarned = true;
-            Report(force: true, message: "Sürücü hız ayarını desteklemiyor; normal hızda devam ediliyor");
+            Report(force: true, message: L.T("Sürücü hız ayarını desteklemiyor; normal hızda devam ediliyor"));
         }
     }
 
@@ -595,7 +595,7 @@ public sealed class DeviceSource : ISectorSource
     {
         var h = CreateFile($@"\\.\{drive}:", access, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
         if (h.IsInvalid)
-            throw new Win32Exception(Marshal.GetLastWin32Error(), $"{drive}: sürücüsü açılamadı");
+            throw new Win32Exception(Marshal.GetLastWin32Error(), L.F("{0}: sürücüsü açılamadı", drive));
         return h;
     }
 
